@@ -1,0 +1,15 @@
+name: Core checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start local protocol fixtures
+        run: python3 scripts/api-fixture-server.py > /tmp/oxa-fixtures.log 2>&1 &
+      - name: Test core
+        run: OXA_PROVIDER_FIXTURES=1 swift test

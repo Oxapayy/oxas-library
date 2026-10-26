@@ -1,0 +1,90 @@
+name: OxasLibrary
+options:
+  bundleIdPrefix: app.oxas
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGNING_ALLOWED: NO
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "4"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: NO
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    exactVersion: 2.55.5
+targets:
+  OxasLibrary:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/OxaApp
+      - Sources/OxaCore
+      - path: Resources
+        excludes: [Info.plist, Simulator.entitlements]
+    dependencies:
+      - package: Supabase
+        product: Supabase
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: "Oxa’s Library"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations: [en]
+        CFBundleURLTypes:
+          - CFBundleURLName: app.oxas.library.auth
+            CFBundleURLSchemes: [oxaslibrary]
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIRequiresFullScreen: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UIRequiredDeviceCapabilities: [arm64]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIBackgroundModes: [audio]
+        NSLocalNetworkUsageDescription: "Oxa’s Library connects to the media servers and NAS you add on your local network."
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": Resources/Simulator.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: app.oxas.library
+        PRODUCT_NAME: OxasLibrary
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  OxasLibraryTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: Tests/OxaAppTests
+    dependencies:
+      - target: OxasLibrary
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OxasLibrary.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OxasLibrary"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  OxasLibraryUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: Tests/OxaUITests
+    dependencies:
+      - target: OxasLibrary
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: OxasLibrary
+schemes:
+  OxasLibrary:
+    build:
+      targets:
+        OxasLibrary: all
+        OxasLibraryUITests: [test]
+    test:
+      targets: [OxasLibraryTests, OxasLibraryUITests]
