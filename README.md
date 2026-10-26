@@ -67,7 +67,7 @@ Fixture credentials are local examples. The generated 24-second video in `script
 
 To self-host account services, apply `supabase/migrations/`, deploy `supabase/functions/delete-account`, configure Supabase Auth/custom SMTP with `supabase/templates/`, set your own project URL and **publishable** key in `CloudConfiguration.swift`, and enable `app_configuration.auth_emails_ready` after verifying delivery. Never put service-role or SMTP secrets in the app or repository. The hosted build's publishable project key is public configuration, not a privileged key. Accounts belong to the configured deployment.
 
-The website is plain HTML/CSS/JavaScript in `website/`; `netlify.toml` publishes that folder. It uses original app screenshots and preview artwork, an interactive resume control, keyboard-accessible platform tabs and reduced-motion fallbacks.
+The website is plain HTML/CSS/JavaScript in `website/`; `netlify.toml` publishes that folder. It uses real iPhone screenshots supplied by the project owner, an interactive screenshot selector and full-size viewer, keyboard-accessible platform tabs, requested translucent glass materials and reduced-motion/transparency fallbacks.
 
 ## License and attribution
 

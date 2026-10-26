@@ -1,3 +1,5 @@
+> Historical notes for the original 1.2.0 website. Superseded by [the real-screenshot redesign](WEBSITE-REDESIGN.md).
+
 # Oxa’s Library website
 
 Audience: iPhone owners bringing their own media sources. Primary action: download the unsigned iOS IPA from GitHub Releases. English only. macOS and Windows coming soon.
