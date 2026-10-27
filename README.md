@@ -98,3 +98,7 @@ Donations are optional. All app features remain free. Use the matching network.
 
 - Bitcoin (BTC): `3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV`
 - Litecoin (LTC): `MTToUVnMpepWixDhUPBBG1SgdmxjifArwF`
+
+## Website assets
+
+After editing `website/app.js` or `website/styles.css`, run `python3 scripts/prepare-website.py`. Netlify runs this automatically when building. The generated filenames include a content hash so cached files cannot hide updated download links.
