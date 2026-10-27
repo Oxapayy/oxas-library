@@ -26,10 +26,10 @@ function setPlatform(tab){
 keyboardTabs(platforms,setPlatform);
 const viewer=document.querySelector('#image-viewer'),viewerImage=document.querySelector('#viewer-image');
 let zoomTrigger;
-const descriptions={library:'Library with Continue Watching and film collection',series:'Series details and resume position',episodes:'Individual episode and season downloads',search:'Film, series and episode search',iptv:'Live TV channels and program guide',settings:'Source, account and playback settings'};
-function showImage(name,trigger){zoomTrigger=trigger;viewerImage.src=`assets/screens/${name}.jpg`;viewerImage.alt=descriptions[name];viewer.showModal();document.querySelector('.viewer-close').focus()}
+const descriptions={library:'Library with Continue Watching and film collection',series:'Series details and resume position',episodes:'Individual episode and season downloads',search:'Film and series search',iptv:'Live TV channels and program guide',settings:'Source, account and playback settings'};
+function showImage(name,trigger){zoomTrigger=trigger;viewerImage.src=`assets/screens/${name}.jpg`;viewerImage.alt=descriptions[name]||'Oxa’s Library on macOS';viewer.showModal();document.querySelector('.viewer-close').focus()}
 for(const button of document.querySelectorAll('[data-zoom]'))button.addEventListener('click',()=>showImage(button.dataset.zoom,button));
-const currentZoom=document.querySelector('[data-zoom-current]');currentZoom.addEventListener('click',()=>showImage(selectedScreen,currentZoom));
+const currentZoom=document.querySelector('[data-zoom-current]');currentZoom.addEventListener('click',()=>showImage({library:'mac-library',series:'mac-detail',iptv:'mac-iptv'}[selectedScreen],currentZoom));
 function closeViewer(){viewer.close();zoomTrigger?.focus()}
 document.querySelector('.viewer-close').addEventListener('click',closeViewer);
 viewer.addEventListener('click',event=>{if(event.target===viewer)closeViewer()});
