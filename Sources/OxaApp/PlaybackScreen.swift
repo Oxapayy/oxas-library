@@ -140,7 +140,7 @@ import Observation
     }
     func beginCountdown() {
         guard countdown == nil, !nextCancelled, !switchingEpisode else { return }
-        countdown = 5
+        countdown = 3
         let token = loadEpoch
         countdownTask = Task {
             while !Task.isCancelled, token == loadEpoch, !closed, let value = countdown, value > 0 {

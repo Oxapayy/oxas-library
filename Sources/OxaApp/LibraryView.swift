@@ -4,6 +4,7 @@ struct LibraryView: View {
     @Environment(AppStore.self) private var store
     @State private var selectedSource: UUID?
     @State private var type = "All"
+    @State private var importing = false
     @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 30
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeSize = 32
     private var visible: [Media] { store.catalog.filter { [.movie, .series].contains($0.kind) && (selectedSource == nil || $0.sourceID == selectedSource) && (type == "All" || type == "Movies" && $0.kind == .movie || type == "Series" && $0.kind == .series) } }
@@ -76,7 +77,11 @@ struct LibraryView: View {
                 Text("A home for\nyour collection.").font(.system(size: welcomeSize, weight: .bold)).tracking(-0.8).fixedSize(horizontal: false, vertical: true)
                 Text("Your films, series and live TV.\nConnected to the sources you choose.").font(.body).foregroundStyle(OxaTheme.secondary).lineSpacing(4)
             }.padding(.top, 20)
-            PrimaryAction(title: "Add Your First Source", icon: "plus") { store.showAddSource = true }
+            PrimaryAction(title: importing ? "Importing…" : "Import huhu.to", icon: "plus") {
+                importing = true
+                Task { defer { importing = false }; do { try await store.addSource(name: "huhu.to", kind: .website, credentials: Credentials(endpoint: "https://huhu.to"), allowHTTP: false) } catch { store.error = store.safeMessage(error) } }
+            }.disabled(importing)
+            Button("Connect Your Own Server") { store.showAddSource = true }.font(.subheadline.weight(.medium)).frame(maxWidth: .infinity)
             VStack(alignment: .leading, spacing: 24) {
                 sourceRow("Your libraries", subtitle: "Website catalogs, Plex, Jellyfin and Emby", icon: "server.rack")
                 sourceRow("Your own files", subtitle: "NAS via WebDAV and video URLs", icon: "externaldrive")

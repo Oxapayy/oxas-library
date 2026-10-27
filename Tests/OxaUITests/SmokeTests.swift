@@ -4,14 +4,15 @@ final class SmokeTests: XCTestCase {
     override func tearDown() { XCUIDevice.shared.orientation = .portrait; super.tearDown() }
     func testFirstRunAndInvalidSource() {
         let app = XCUIApplication(); app.launchArguments = ["--ui-test-reset"]; app.launch()
-        XCTAssertTrue(app.buttons["Add Your First Source"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Connect Your Own Server"].waitForExistence(timeout: 10))
         let first = XCTAttachment(screenshot: app.screenshot()); first.name = "First launch"; first.lifetime = .keepAlways; add(first)
-        app.buttons["Add Your First Source"].tap()
+        app.buttons["Connect Your Own Server"].tap()
         let field = app.textFields["source-url"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap(); field.typeText("not-a-url")
         app.swipeUp()
         app.buttons["connect-source"].tap()
+        if !app.staticTexts["source-error"].exists { app.swipeUp() }
         XCTAssertTrue(app.staticTexts["source-error"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["source-error"].label.contains("valid HTTP"))
         let screenshot = XCTAttachment(screenshot: app.screenshot()); screenshot.name = "Source validation"; screenshot.lifetime = .keepAlways; add(screenshot)
@@ -34,7 +35,7 @@ final class SmokeTests: XCTestCase {
     }
     func testLocalVideoDownloadAndPersistentResume() {
         let app = XCUIApplication(); app.launchArguments = ["--ui-test-reset"]; app.launch()
-        app.buttons["Add Your First Source"].tap()
+        app.buttons["Connect Your Own Server"].tap()
         app.buttons["source-kind"].tap()
         app.buttons["Video URL"].tap()
         let field = app.textFields["source-url"]
@@ -73,7 +74,7 @@ final class SmokeTests: XCTestCase {
     }
     func testWebsiteLibraryImportsFilmsSeriesEpisodesAndTV() {
         let app = XCUIApplication(); app.launchArguments = ["--ui-test-reset"]; app.launch()
-        app.buttons["Add Your First Source"].tap()
+        app.buttons["Connect Your Own Server"].tap()
         let field = app.textFields["source-url"]
         field.tap(); field.typeText("http://127.0.0.1:8789/website")
         app.buttons["Done"].tap()
@@ -94,7 +95,7 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["search-result-fixture-metadata:video:search-only"].waitForExistence(timeout: 10))
     }
     private func connectWebsite(_ app: XCUIApplication) {
-        app.buttons["Add Your First Source"].tap()
+        app.buttons["Connect Your Own Server"].tap()
         let field = app.textFields["source-url"]; field.tap(); field.typeText("http://127.0.0.1:8789/website")
         app.buttons["Done"].tap()
         let toggle = app.switches["source-http"]

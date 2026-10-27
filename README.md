@@ -1,20 +1,20 @@
 # Oxa’s Library
 
-An open-source, English-only iPhone app for your personal films, series and live TV. Connect sources you are authorized to use, resume episodes and save supported media offline.
+An open-source, English-only iOS, macOS and Windows app for your personal films, series and live TV. Connect sources you are authorized to use, resume episodes and save supported media offline.
 
-[Download for iOS](https://github.com/Oxapayy/oxas-library/releases/tag/v1.2.0) · [Website](https://oxas-library.netlify.app) · [Report an issue](https://github.com/Oxapayy/oxas-library/issues)
+[Download for iOS](https://github.com/Oxapayy/oxas-library/releases/tag/v1.3.0) · [Website](https://oxapay.cc) · [Report an issue](https://github.com/Oxapayy/oxas-library/issues)
 
 ## iOS release
 
-The release asset is **Oxas-Library-v1.2.0-iOS-unsigned.ipa**. It requires iOS 18 or later. Import it into ESign or another sideloading tool, sign using your own valid certificate and provisioning profile, then install. No certificate/profile is supplied. Use the same bundle identifier and signing identity when updating to retain local data and Keychain access.
+The release asset is **Oxas-Library-v1.3.0-iOS-unsigned.ipa**. It requires iOS 18 or later. Import it into ESign or another sideloading tool, sign using your own valid certificate and provisioning profile, then install. No certificate/profile is supplied. Use the same bundle identifier and signing identity when updating to retain local data and Keychain access.
 
-The shared macOS and Windows client source is in `desktop/`. Desktop installation packages are being prepared; the iOS release above remains available.
+The shared macOS and Windows client source is in `desktop/`. Download macOS packages for Apple Silicon or Intel and the Windows 10/11 x64 + ARM64 installer from [Desktop 1.0.0](https://github.com/Oxapayy/oxas-library/releases/tag/desktop-v1.0.0). The Windows installer selects the architecture automatically. These initial releases have no publisher certificate; macOS packages use ad hoc signing and are not notarized.
 
 ## What it does
 
-- Combined film/series library, Continue Watching, watchlist and per-episode progress.
+- Combined film/series library, Continue Watching, watchlist and per-episode progress. New Episodes discovers new provider episodes on refresh, including series you already finished; direct Play is available. No push notifications.
 - Full-screen video surface across portrait/landscape, Fit/Fill, seeking, audio/subtitle selection, playback speed, AirPlay and Picture in Picture where supported.
-- Manual Next episode and cancellable five-second countdown. Uses supplied credits start when available; otherwise prompts in the last 2% of the episode, capped at 30 seconds and at least five seconds. This is a timing fallback, not visual credits recognition.
+- Manual Next episode and cancellable three-second countdown. Uses supplied credits start when available; otherwise prompts in the last 2% of the episode, capped at 30 seconds and at least five seconds. This is a timing fallback, not visual credits recognition.
 - Select website playback servers by name, language and quality; retry refreshes stream metadata.
 - Film, individual episode and season downloads over Wi-Fi/cellular where the provider supplies a compatible permitted file or VOD HLS stream. Downloaded videos remain local.
 - Separate IPTV tab, channel/program search and XMLTV guide. Live recording is not included.
@@ -29,7 +29,7 @@ The shared macOS and Windows client source is in `desktop/`. Desktop installatio
 | WebDAV | NAS media-folder URL, optional Basic authentication |
 | Video URL | One direct supported video file or HLS link |
 | M3U / Xtream Codes | Authorized playlist/provider URL; optional XMLTV guide |
-| mHub v2 library | Supported website/addon catalog; setup suggests huhu.to without connecting automatically |
+| mHub v2 library | Supported website/addon catalog; one-click huhu.to import is offered in setup |
 
 Catalog availability does not guarantee stream availability. huhu.to and all provider names remain the property of their operators. Provider access, codecs and offline permissions can change. The app does not execute provider scripts, implement DRM bypasses or solve interactive browser challenges. No films, channel packages or subscriptions are bundled.
 

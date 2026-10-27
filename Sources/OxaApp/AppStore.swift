@@ -141,7 +141,7 @@ import AVFoundation
             for item in catalog where item.sourceID == source.id && item.kind == .episode && (state.progress[item.id]?.seconds ?? 0) > 0 {
                 if let seriesID = item.seriesID {
                     let key = "\(source.id):\(seriesID)"
-                    if state.followedSeries?[key] == nil { state.followedSeries?[key] = Set(catalog.filter { $0.sourceID == source.id && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)) }
+                    if state.followedSeries?[key] == nil { let known = Set(catalog.filter { $0.sourceID == source.id && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)); state.followedSeries?[key] = known }
                 }
             }
             var result = try await client.catalog()
@@ -170,7 +170,11 @@ import AVFoundation
     }
     private var refreshTask: Task<Void, Never>?
     func startRefresh() {
-        guard refreshTask == nil else { return }
+        #if DEBUG
+        // This playback-only fixture intentionally has no matching server catalog.
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-episode-player") { return }
+        #endif
+        guard refreshTask == nil, playback == nil, !preparingPlayback else { return }
         refreshTask = Task { await refreshAll(); refreshTask = nil }
     }
     func refreshAll() async { for source in sources { await refresh(source) } }
@@ -372,7 +376,7 @@ import AVFoundation
         if item.kind == .episode, let seriesID = item.seriesID {
             if state.followedSeries == nil { state.followedSeries = [:] }
             let key = "\(item.sourceID):\(seriesID)"
-            if state.followedSeries?[key] == nil { state.followedSeries?[key] = Set(catalog.filter { $0.sourceID == item.sourceID && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)) }
+            if state.followedSeries?[key] == nil { let known = Set(catalog.filter { $0.sourceID == item.sourceID && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)); state.followedSeries?[key] = known }
             state.newEpisodeIDs?.remove(item.id)
         }
         state.progress[item.id] = WatchProgress(seconds: seconds, duration: duration.isFinite && duration > 0 ? duration : item.duration, completed: ended)

@@ -24,7 +24,7 @@ struct SourceEditor: View {
                 if existing == nil {
                     Section {
                         Button(busy ? "Importing…" : "Import huhu.to") { kind = .website; endpoint = "https://huhu.to"; name = "huhu.to"; username = ""; password = ""; token = ""; allowHTTP = false; allowInsecureStreams = false; connect() }.disabled(busy).fontWeight(.semibold)
-                    } header: { Text("Quick start") } footer: { Text("One click imports the library. You can also connect your own server below. Only access media you are entitled to use.") }
+                    } header: { Text("Quick start") } footer: { Text("Import the library, or connect your own server below.") }
                 }
                 Section {
                     Picker("Source type", selection: $kind) { ForEach(SourceKind.allCases) { kind in Text(kind.rawValue).tag(kind) } }.disabled(existing != nil).accessibilityIdentifier("source-kind")

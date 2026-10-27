@@ -11,3 +11,9 @@
 .ambient{mask-image:radial-gradient(ellipse,#000 25%,transparent 72%)} /* taste-skill-ignore: alpha mask feathers the real image; this is not a gradient fill. */
 .image-material{height:100%}.image-material .screenshot-button,.settings-visual .screenshot-button{height:100%}
 .image-material img,.settings-visual img{height:100%;width:100%;object-fit:cover;object-position:top}
+
+.support{color:var(--muted,#aaa);font-size:14px;margin-top:24px;max-width:100%}.support summary{cursor:pointer}.support code{overflow-wrap:anywhere}.support button{color:inherit;background:transparent;border:1px solid #555;border-radius:999px;padding:6px 12px;cursor:pointer}
+.image-material.glass,.platforms.glass,.install.glass{border:0;box-shadow:none}
+.support{grid-column:1/-1}.support p{margin-top:14px}
+#platform-intel{display:block;margin-top:18px}
+.hero-images,.zoom-button.glass,.screen-tabs.glass{box-shadow:none}
