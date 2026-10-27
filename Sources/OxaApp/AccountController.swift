@@ -40,6 +40,7 @@ import Supabase
         operationTask = Task { await restore() }
     }
     func refreshReadiness() async {
+        guard CloudConfiguration.isConfigured else { return }
         do {
             let flags: AuthReadiness = try await client.from("app_configuration").select("auth_emails_ready").single().execute().value
             emailReady = flags.auth_emails_ready
@@ -47,6 +48,7 @@ import Supabase
         } catch { /* Guest use and existing cached account state remain available. */ }
     }
     private func restore() async {
+        guard CloudConfiguration.isConfigured else { return }
         await refreshReadiness()
         guard let identity else { return }
         let token = epoch

@@ -18,7 +18,9 @@ struct AccountView: View {
     var body: some View {
         let account = store.account!
         Form {
-            if let identity = account.identity {
+            if !CloudConfiguration.isConfigured {
+                Section { Text("Account services are not configured in this build. You can use your library and downloads without an account.") }
+            } else if let identity = account.identity {
                 Section {
                     Text(identity.email).font(.headline)
                     if account.needsUnlock {

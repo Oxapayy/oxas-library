@@ -1,10 +1,18 @@
 import Foundation
 import Supabase
 
-// Public project configuration only. RLS, never this publishable key, authorizes user data.
+// Public client connection values are injected privately when producing hosted builds.
+// No service-role, SMTP or administrator credentials belong in a client app.
 enum CloudConfiguration {
-    static let url = URL(string: "https://kexzbnhmymvbrijopayi.supabase.co")!
-    static let key = "sb_publishable_TlKCX8wPX61T8ECcQ4sfQw_-P3Vrwqb"
+    private static let values: [String: String] = {
+        guard let file = Bundle.main.url(forResource: "Cloud.local", withExtension: "json"),
+              let bytes = try? Data(contentsOf: file),
+              let values = try? JSONDecoder().decode([String: String].self, from: bytes) else { return [:] }
+        return values
+    }()
+    static let isConfigured = URL(string: values["url"] ?? "")?.scheme == "https" && URL(string: values["url"] ?? "")?.host != nil && !(values["publishableKey"] ?? "").isEmpty
+    static let url = isConfigured ? URL(string: values["url"]!)! : URL(string: "https://example.invalid")!
+    static let key = values["publishableKey"] ?? "not-configured"
     static let callback = URL(string: "oxaslibrary://auth/callback")!
 }
 struct AuthKeychainStorage: AuthLocalStorage {

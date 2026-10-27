@@ -25,3 +25,14 @@ docs/VERIFICATION*.md
 docs/screenshots/
 
 supabase/.temp/
+
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+desktop/test-results/
+desktop/playwright-report/
+
+# Private service implementation and hosted-build configuration
+/supabase/
+/Config/Cloud.local.json
+/Resources/Cloud.local.json
