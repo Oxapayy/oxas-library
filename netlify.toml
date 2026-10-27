@@ -28,8 +28,3 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
-[[headers]]
-  for = "/downloads/Oxas-Library-Launch-1080p.mp4"
-  [headers.values]
-    Content-Type = "video/mp4"
-    Content-Disposition = "attachment; filename=Oxas-Library-Launch-1080p.mp4"
