@@ -12,30 +12,52 @@ test("Jellyfin, Emby, Plex, WebDAV, direct, M3U, Xtream and mHub contracts", asy
   const port = (probe.address() as any).port;
   await new Promise<void>((r) => probe.close(() => r()));
   const child = spawn(
-    process.platform === "win32" ? "python" : "python3",
+    process.env.PYTHON || (process.platform === "win32" ? "python" : "python3"),
     ["scripts/api-fixture-server.py"],
     {
       cwd: "..",
       env: { ...process.env, OXA_FIXTURE_PORT: String(port) },
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
     },
   );
   let startupError: any;
+  let diagnostics = "";
+  child.stdout.on("data", (data) => {
+    diagnostics = (diagnostics + data).slice(-8192);
+  });
+  child.stderr.on("data", (data) => {
+    diagnostics = (diagnostics + data).slice(-8192);
+  });
   child.on("error", (e) => (startupError = e));
   t.after(() => child.kill());
   const base = `http://127.0.0.1:${port}`;
   let ready = false;
-  for (let n = 0; n < 100; n++) {
+  // A cold Python process on a shared Windows ARM runner can take more than
+  // two seconds to start. Bound startup independently of provider/UI timings.
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
     if (startupError) throw startupError;
+    if (child.exitCode != null)
+      throw Error(
+        `Protocol fixture exited (${child.exitCode}): ${diagnostics}`,
+      );
     try {
-      await fetch(base + "/invalid");
-      ready = true;
-      break;
+      const response = await fetch(base + "/invalid", {
+        signal: AbortSignal.timeout(500),
+      });
+      if (
+        response.status === 200 &&
+        (await response.text()).includes("<html>Login</html>")
+      ) {
+        ready = true;
+        break;
+      }
     } catch {
-      await new Promise((r) => setTimeout(r, 20));
+      // Keep waiting only while this exact child is alive.
     }
+    await new Promise((r) => setTimeout(r, 50));
   }
-  assert.ok(ready, "local protocol fixture started");
+  assert.ok(ready, `local protocol fixture started: ${diagnostics}`);
   const api = (kind: string, endpoint = base) =>
     new Provider(
       {
