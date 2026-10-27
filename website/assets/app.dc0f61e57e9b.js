@@ -37,3 +37,24 @@ viewer.addEventListener('cancel',()=>{requestAnimationFrame(()=>zoomTrigger?.foc
 if('IntersectionObserver'in window&&!matchMedia('(prefers-reduced-motion: reduce)').matches){const observer=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){entry.target.classList.remove('reveal');void entry.target.offsetWidth;entry.target.classList.add('reveal','entering');observer.unobserve(entry.target)}},{threshold:.12});document.querySelectorAll('section:not(.hero) .reveal').forEach(element=>observer.observe(element))}
 
 for (const button of document.querySelectorAll('[data-copy-address]')) button.addEventListener('click', async () => { try { await navigator.clipboard.writeText(button.dataset.copyAddress); document.querySelector('#copy-status').textContent = 'Address copied.'; } catch { document.querySelector('#copy-status').textContent = 'Select and copy the address above.'; } });
+
+// Section navigation keeps the public URL clean and preserves keyboard focus.
+document.addEventListener('click', event => {
+  const trigger = event.target.closest('[data-scroll]');
+  if (!trigger) return;
+  const target = document.getElementById(trigger.dataset.scroll);
+  if (!target) return;
+  if (target.tagName === 'DETAILS') target.open = true;
+  target.scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start'});
+  const focus = target.querySelector('h1,h2,summary') || target;
+  if (!focus.hasAttribute('tabindex')) focus.setAttribute('tabindex','-1');
+  focus.focus({preventScroll:true});
+});
+function cleanSectionURL() {
+  if (!location.hash) return;
+  let id = ''; try { id = decodeURIComponent(location.hash.slice(1)); } catch {}
+  history.replaceState(null,'',location.pathname + location.search);
+  if (id) requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView());
+}
+window.addEventListener('hashchange', cleanSectionURL);
+cleanSectionURL();

@@ -1,5 +1,5 @@
 [build]
-  command = "python3 scripts/prepare-website.py"
+  command = "python3 scripts/prepare-website.py && python3 scripts/prepare-web-site.py"
   publish = "website"
 
 [[headers]]
@@ -8,7 +8,26 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+
+# The browser application has its own exact account/media policy. Both policies
+# are generated into the publish directory without exposing private build config.
+[functions]
+  directory = "web-private/functions"
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/web"
+  to = "/web/index.html"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/app"
+  to = "/web"
+  status = 301
+[[redirects]]
+  from = "/app/*"
+  to = "/web/:splat"
+  status = 301
 
 # Revalidate documents and unversioned development entry points.
 [[headers]]

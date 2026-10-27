@@ -4,12 +4,16 @@ mpegts.LoggingControl.enableAll = false;
 declare global {
   interface Window {
     oxa: {
+      capabilities?: { web?: boolean; downloads?: boolean };
       command: (action: string, args?: any) => Promise<any>;
       onUpdate: (fn: (s: any) => void) => () => void;
       onAction: (fn: (s: string) => void) => () => void;
     };
   }
 }
+const webMode = window.oxa.capabilities?.web === true;
+const downloadsEnabled =
+  !webMode && window.oxa.capabilities?.downloads !== false;
 const $ = (s: string) => document.querySelector(s) as any;
 const esc = (v: any) =>
   String(v ?? "").replace(
@@ -104,8 +108,25 @@ const button = (
   primary = false,
 ) =>
   `<button type="button" ${primary ? 'class="primary"' : ""} data-action="${esc(action)}" data-args="${esc(JSON.stringify(args))}">${esc(label)}</button>`;
+function allowedMediaURL(raw: string, caption = false) {
+  if (typeof raw !== "string" || !raw) return false;
+  if (!webMode) return raw.startsWith("oxa://");
+  try {
+    const url = new URL(raw, location.href);
+    if (caption && url.protocol === "blob:")
+      return url.origin === location.origin;
+    return (
+      url.origin === location.origin &&
+      (url.pathname === "/web/api/media" ||
+        url.pathname.startsWith("/web/media/") ||
+        (caption && url.pathname === "/web/api/caption"))
+    );
+  } catch {
+    return false;
+  }
+}
 const image = (url: string, alt = "", cls = "") =>
-  url && url.startsWith("oxa://")
+  allowedMediaURL(url)
     ? `<img src="${esc(url)}" alt="${esc(alt)}" class="${esc(cls)}" loading="lazy" decoding="async">`
     : "";
 const episodeLabel = (m: any) =>
@@ -132,6 +153,7 @@ function sidebar() {
   const html = `<div class="brand"><span class="brand-mark">▶</span><span class="name">Oxa’s Library</span></div><nav>${Object.keys(
     icons,
   )
+    .filter((name) => downloadsEnabled || name !== "Downloads")
     .map(
       (name) =>
         `<button data-page="${name}" ${page === name ? 'aria-current="page"' : ""}><svg viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg><span class="label">${name}</span></button>`,
@@ -145,6 +167,7 @@ function sidebar() {
   }
 }
 function render() {
+  if (!downloadsEnabled && page === "Downloads") page = "Library";
   sidebar();
   const content = $("#content");
   const pageHTML =
@@ -154,7 +177,7 @@ function render() {
         ? search()
         : page === "IPTV"
           ? iptv()
-          : page === "Downloads"
+          : page === "Downloads" && downloadsEnabled
             ? downloads()
             : settings();
   const html =
@@ -228,23 +251,29 @@ function library() {
           )
           .join("")}</div>${showMore("continued", continued.length)}`
       : "") +
-    (!state.sources.length
+    (webMode && state.initializing && !rows.length
       ? blank(
-          "Your library starts here.",
-          "Connect your media server, library URL or video source. Your watch progress stays with you.",
-          button("Import huhu.to", "source.huhu", {}, true) +
-            button("Connect Your Own Server", "source.form"),
+          "Connecting your library…",
+          state.loadingMessage ||
+            "Loading films, series and live TV from huhu.to.",
         )
-      : rows.length
-        ? `<div class="section-heading"><h2>${filter === "All" ? "Your Collection" : esc(filter)}</h2><span class="muted">${rows.length}</span></div><div class="grid">${rows.slice(0, visibleCount("library")).map(poster).join("")}</div><div class="section-heading">${showMore("library", rows.length)}${button("Load more from sources", "more")}</div>`
-        : blank(
-            state.sources.some((s: any) => s.refreshing)
-              ? "Loading your library…"
-              : "No titles here yet.",
-            state.sources.some((s: any) => s.refreshing)
-              ? "You can keep using the app while your sources update."
-              : "Refresh your source or check its connection in Settings.",
-          )) +
+      : !state.sources.length
+        ? blank(
+            "Your library starts here.",
+            "Connect your media server, library URL or video source. Your watch progress stays with you.",
+            button("Import huhu.to", "source.huhu", {}, true) +
+              button("Connect Your Own Server", "source.form"),
+          )
+        : rows.length
+          ? `<div class="section-heading"><h2>${filter === "All" ? "Your Collection" : esc(filter)}</h2><span class="muted">${rows.length}</span></div><div class="grid">${rows.slice(0, visibleCount("library")).map(poster).join("")}</div><div class="section-heading">${showMore("library", rows.length)}${button("Load more from sources", "more")}</div>`
+          : blank(
+              state.sources.some((s: any) => s.refreshing)
+                ? "Loading your library…"
+                : "No titles here yet.",
+              state.sources.some((s: any) => s.refreshing)
+                ? "You can keep using the app while your sources update."
+                : "Refresh your source or check its connection in Settings.",
+            )) +
     state.sources
       .filter((s: any) => s.error)
       .map((s: any) => `<p class="error">${esc(s.name)}: ${esc(s.error)}</p>`)
@@ -328,6 +357,7 @@ function iptv() {
   );
 }
 function downloads() {
+  if (!downloadsEnabled) return "";
   return (
     heading("Downloads") +
     `<p>Saved on this device. Downloads stay available without a server connection.</p>` +
@@ -345,12 +375,20 @@ function downloads() {
         ))
   );
 }
+function providerAssistance(sourceID: string, context = "playback") {
+  if (!webMode || !sourceID) return "";
+  const source = state.sources.find((s: any) => s.id === sourceID);
+  if (!source || source.kind !== "Library URL") return "";
+  const id = `provider-assistance-${context}-${source.id}`;
+  return `<div class="provider-assistance"><label class="row check"><span class="text">Provider-assisted requests</span><input id="${esc(id)}" data-provider-assistance data-source-id="${esc(source.id)}" type="checkbox" role="switch" aria-describedby="${esc(id)}-info" ${source.allowProviderFetch ? "checked" : ""}></label><p id="${esc(id)}-info" class="info">Some servers need a public host response sent to this library provider to resolve playback. Your Oxa account and other saved server credentials are never included.</p></div>`;
+}
+const permissionVersions = new Map<string, number>();
 function settings() {
   const p = state.preferences,
     a = state.account;
   return (
     heading("Settings") +
-    `<div class="settings-layout"><section class="setting-section"><div><h3>Your account</h3><p>Optional account sync, watch history and watchlist across your devices.</p></div><div class="panel"><div class="row"><div class="text"><strong>${esc(a.email || "Continue as a guest")}</strong><small>${esc(a.signedIn ? (a.unlocked ? "Account sync ready" : "Connecting to your account") : "Your library is saved on this device.")}</small></div>${button(a.signedIn ? "Manage" : "Sign in", "account.open")}</div>${a.signedIn ? `<div class="row"><div class="text"><small>${esc(a.message || (a.syncing ? "Syncing…" : "Your local changes are saved."))}</small></div>${button("Sync Now", "sync")}</div>` : ""}</div></section><section class="setting-section"><div><h3>Sources</h3><p>Connect several libraries in one place. Refreshing keeps your watch progress.</p></div><div><div class="panel">${state.sources.map((s: any) => `<div class="row"><div class="text"><strong>${esc(s.name)}</strong><small>${esc(s.kind)} · ${esc(s.host)}</small>${s.refreshing ? '<small class="busy">Refreshing</small>' : ""}${s.error ? `<p class="error">${esc(s.error)}</p>` : ""}<div class="source-actions">${button("Refresh", "refresh", { id: s.id })}${button("Edit", "source.form", { id: s.id })}<button class="danger" data-action="source.confirm-remove" data-args="${esc(JSON.stringify({ id: s.id }))}">Remove</button></div></div></div>`).join("") || "<p>No sources connected.</p>"}${button("+ Add Source", "source.form")}</div></div></section><section class="setting-section"><div><h3>Playback</h3><p>Language preferences apply when those tracks are available. Change tracks in the player at any time.</p></div><div class="panel"><label class="row check"><span class="text">Play next episode automatically</span><input id="autoplay" role="switch" type="checkbox" ${p.autoplay ? "checked" : ""}></label><label class="row"><span class="text">Audio language</span><select id="audio-language"><option value="en" ${p.audioLanguage === "en" ? "selected" : ""}>English</option><option value="de" ${p.audioLanguage === "de" ? "selected" : ""}>German</option></select></label><label class="row"><span class="text">Subtitle language</span><select id="subtitle-language">${[
+    `<div class="settings-layout"><section class="setting-section"><div><h3>Your account</h3><p>Optional account sync, watch history and watchlist across your devices.</p></div><div class="panel"><div class="row"><div class="text"><strong>${esc(a.email || "Continue as a guest")}</strong><small>${esc(a.signedIn ? (a.unlocked ? "Account sync ready" : "Connecting to your account") : "Your library is saved on this device.")}</small></div>${button(a.signedIn ? "Manage" : "Sign in", "account.open")}</div>${a.signedIn ? `<div class="row"><div class="text"><small>${esc(a.message || (a.syncing ? "Syncing…" : "Your local changes are saved."))}</small></div>${button("Sync Now", "sync")}</div>` : ""}</div></section><section class="setting-section"><div><h3>Sources</h3><p>Connect several libraries in one place. Refreshing keeps your watch progress.</p></div><div><div class="panel">${state.sources.map((s: any) => `<div class="row"><div class="text"><strong>${esc(s.name)}</strong><small>${esc(s.kind)} · ${esc(s.host)}</small>${s.refreshing ? '<small class="busy">Refreshing</small>' : ""}${s.error ? `<p class="error">${esc(s.error)}</p>` : ""}<div class="source-actions">${button("Refresh", "refresh", { id: s.id })}${button("Edit", "source.form", { id: s.id })}<button class="danger" data-action="source.confirm-remove" data-args="${esc(JSON.stringify({ id: s.id }))}">Remove</button></div>${providerAssistance(s.id, "settings")}</div></div>`).join("") || "<p>No sources connected.</p>"}${button("+ Add Source", "source.form")}</div></div></section><section class="setting-section"><div><h3>Playback</h3><p>Language preferences apply when those tracks are available. Change tracks in the player at any time.</p></div><div class="panel"><label class="row check"><span class="text">Play next episode automatically</span><input id="autoplay" role="switch" type="checkbox" ${p.autoplay ? "checked" : ""}></label><label class="row"><span class="text">Audio language</span><select id="audio-language"><option value="en" ${p.audioLanguage === "en" ? "selected" : ""}>English</option><option value="de" ${p.audioLanguage === "de" ? "selected" : ""}>German</option></select></label><label class="row"><span class="text">Subtitle language</span><select id="subtitle-language">${[
       ["off", "Off"],
       ["en", "English"],
       ["de", "German"],
@@ -361,7 +399,7 @@ function settings() {
       )
       .join(
         "",
-      )}</select></label></div></section><section class="setting-section"><div><h3>Optional metadata</h3><p>Find artwork and descriptions with your own TMDB API read token. Searches send the title to TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p></div><div class="panel"><form id="metadata-form"><label>TMDB API read token<input name="token" type="password" autocomplete="off" placeholder="Paste a token, or leave blank to disable"></label><button type="submit">Save Metadata Settings</button></form></div></section><section class="setting-section"><div><h3>Download location</h3><p>Offline video stays on this device. Moving the folder also moves saved downloads.</p></div><div class="panel"><p>${esc(p.downloadDirectory || "Application storage")}</p>${button("Choose Folder…", "downloadDirectory")}</div></section><section class="setting-section"><div><h3>Oxa’s Library</h3><p>Version ${esc(state.version)} · ${state.platform === "darwin" ? "macOS" : "Windows"}<br>Open source. Your collection. On your terms.</p></div><div class="panel">${button("Website", "external", { target: "website" })} ${button("Source Code", "external", { target: "github" })} ${button("Releases", "external", { target: "release" })} ${button("Licenses", "licenses")}</div></section><section class="setting-section"><div><h3>Support Oxa</h3><p>Optional donations help support development. All features stay free.</p></div><div class="panel"><p>Bitcoin · BTC</p><code>3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV</code>${button("Copy Bitcoin Address", "donation.copy", { network: "bitcoin" })}<p>Litecoin · LTC</p><code>MTToUVnMpepWixDhUPBBG1SgdmxjifArwF</code>${button("Copy Litecoin Address", "donation.copy", { network: "litecoin" })}</div></section></div>`
+      )}</select></label></div></section><section class="setting-section"><div><h3>Optional metadata</h3><p>Find artwork and descriptions with your own TMDB API read token. Searches send the title to TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p></div><div class="panel"><form id="metadata-form"><label>TMDB API read token<input name="token" type="password" autocomplete="off" placeholder="Paste a token, or leave blank to disable"></label><button type="submit">Save Metadata Settings</button></form></div></section>${downloadsEnabled ? `<section class="setting-section"><div><h3>Download location</h3><p>Offline video stays on this device. Moving the folder also moves saved downloads.</p></div><div class="panel"><p>${esc(p.downloadDirectory || "Application storage")}</p>${button("Choose Folder…", "downloadDirectory")}</div></section>` : ""}<section class="setting-section"><div><h3>Oxa’s Library</h3><p>Version ${esc(state.version)} · ${webMode ? "Web" : state.platform === "darwin" ? "macOS" : "Windows"}<br>Open source. Your collection. On your terms.</p></div><div class="panel">${button("Website", "external", { target: "website" })} ${button("Source Code", "external", { target: "github" })} ${button("Releases", "external", { target: "release" })} ${button("Licenses", "licenses")}</div></section><section class="setting-section"><div><h3>Support Oxa</h3><p>Optional donations help support development. All features stay free.</p></div><div class="panel"><p>Bitcoin · BTC</p><code>3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV</code>${button("Copy Bitcoin Address", "donation.copy", { network: "bitcoin" })}<p>Litecoin · LTC</p><code>MTToUVnMpepWixDhUPBBG1SgdmxjifArwF</code>${button("Copy Litecoin Address", "donation.copy", { network: "litecoin" })}</div></section></div>`
   );
 }
 function sheet(title: string, html: string) {
@@ -372,16 +410,25 @@ function sheet(title: string, html: string) {
 async function openDetail(id: string) {
   visibleCounts.delete("episodes");
   sheet("Loading…", '<p class="busy">Reading this title</p>');
-  detailData = await cmd("detail", { id });
-  seasonNumber =
-    detailData.seasons[0]?.number || detailData.episodes[0]?.season || 1;
-  if (
-    detailData.media.kind === "series" &&
-    detailData.seasons.length &&
-    !detailData.episodes.some((e: any) => e.season === seasonNumber)
-  )
-    detailData.episodes = await cmd("season", { id, number: seasonNumber });
-  drawDetail();
+  try {
+    detailData = await cmd("detail", { id });
+    seasonNumber =
+      detailData.seasons[0]?.number || detailData.episodes[0]?.season || 1;
+    if (
+      detailData.media.kind === "series" &&
+      detailData.seasons.length &&
+      !detailData.episodes.some((e: any) => e.season === seasonNumber)
+    )
+      detailData.episodes = await cmd("season", { id, number: seasonNumber });
+    drawDetail();
+  } catch (error) {
+    if (!webMode) throw error;
+    detailData = null;
+    sheet(
+      "Couldn’t open this title",
+      `<p>Check the source connection and try again.</p><div class="dialog-actions">${button("Close", "sheet.close")}${button("Retry", "detail", { id }, true)}</div>`,
+    );
+  }
 }
 function drawDetail() {
   const d = detailData,
@@ -396,14 +443,14 @@ function drawDetail() {
           .map((number) => ({ number }));
   sheet(
     m.kind === "series" ? "Series" : "Details",
-    `${image(m.backdrop || m.poster, "", "detail-art")}<div class="detail-heading"><div class="text"><h1>${esc(m.seriesTitle || m.title)}</h1><p>${esc(episodeLabel(m))}</p></div>${button(m.favorite ? "★ Saved" : "☆ Watchlist", "favorite", { id: m.id })}</div><div class="detail-actions">${["movie", "series"].includes(m.kind) && state.preferences.externalMetadata ? button("Find Artwork", "metadata.search", { id: m.id }) : ""}${m.kind !== "series" ? button(m.progress?.seconds && !m.progress.completed ? `Resume at ${time(m.progress.seconds)}` : "Play", "play", { id: m.id }, true) + button("Download", "download", { id: m.id }) : ""}</div><p>${esc(m.overview || "")}</p>${
+    `${image(m.backdrop || m.poster, "", "detail-art")}<div class="detail-heading"><div class="text"><h1>${esc(m.seriesTitle || m.title)}</h1><p>${esc(episodeLabel(m))}</p></div>${button(m.favorite ? "★ Saved" : "☆ Watchlist", "favorite", { id: m.id })}</div><div class="detail-actions">${["movie", "series"].includes(m.kind) && state.preferences.externalMetadata ? button("Find Artwork", "metadata.search", { id: m.id }) : ""}${m.kind !== "series" ? button(m.progress?.seconds && !m.progress.completed ? `Resume at ${time(m.progress.seconds)}` : "Play", "play", { id: m.id }, true) + (downloadsEnabled ? button("Download", "download", { id: m.id }) : "") : ""}</div><p>${esc(m.overview || "")}</p>${
       m.kind === "series"
-        ? `<div class="section-heading"><h2>Episodes</h2><select id="season" aria-label="Season">${seasons.map((s: any) => `<option value="${esc(s.number)}" ${seasonNumber === s.number ? "selected" : ""}>Season ${esc(s.number)}</option>`).join("")}</select></div>${button(`Download Season ${seasonNumber}`, "download", { id: m.id, season: seasonNumber })}${
+        ? `<div class="section-heading"><h2>Episodes</h2><select id="season" aria-label="Season">${seasons.map((s: any) => `<option value="${esc(s.number)}" ${seasonNumber === s.number ? "selected" : ""}>Season ${esc(s.number)}</option>`).join("")}</select></div>${downloadsEnabled ? button(`Download Season ${seasonNumber}`, "download", { id: m.id, season: seasonNumber }) : ""}${
             episodes
               .slice(0, visibleCount("episodes"))
               .map(
                 (e: any) =>
-                  `<article class="episode"><div class="row"><div class="text"><small>S${esc(e.season || 1)} · E${esc(e.episode || 1)}${e.progress?.completed ? " · Watched" : ""}</small><h3>${esc(e.title)}</h3></div>${button(e.progress?.seconds && !e.progress.completed ? "Resume" : "Play", "play", { id: e.id }, true)}</div><p>${esc(e.overview || "")}</p><footer>${button(e.download ? "Downloaded" : "Download", "download", { id: e.id })}${e.progress?.seconds ? `<small>Resume at ${time(e.progress.seconds)}</small>` : ""}</footer></article>`,
+                  `<article class="episode"><div class="row"><div class="text"><small>S${esc(e.season || 1)} · E${esc(e.episode || 1)}${e.progress?.completed ? " · Watched" : ""}</small><h3>${esc(e.title)}</h3></div>${button(e.progress?.seconds && !e.progress.completed ? "Resume" : "Play", "play", { id: e.id }, true)}</div><p>${esc(e.overview || "")}</p><footer>${downloadsEnabled ? button(e.download ? "Downloaded" : "Download", "download", { id: e.id }) : ""}${e.progress?.seconds ? `<small>Resume at ${time(e.progress.seconds)}</small>` : ""}</footer></article>`,
               )
               .join("") || "<p>Choose a season to load its episodes.</p>"
           }${showMore("episodes", episodes.length)}`
@@ -425,7 +472,7 @@ function sourceForm(args: any = {}) {
   ];
   sheet(
     s ? "Edit Source" : "Add Source",
-    `${!s ? '<div class="panel"><h3>Start with a library</h3><p>Import huhu.to with one click, or connect your own server below.</p><button class="primary" data-action="source.huhu">Import huhu.to</button></div>' : ""}<form id="source-form"><input type="hidden" name="id" value="${esc(s?.id || "")}"><div class="field-grid"><label>Name<input name="name" required maxlength="160" value="${esc(s?.name || "")}"></label><label>Source type<select name="kind">${kinds.map((k) => `<option ${k === (s?.kind || args.kind) ? "selected" : ""}>${esc(k)}</option>`).join("")}</select></label><label class="full">Server or library URL<input name="endpoint" type="url" required placeholder="https://your-server.example" autocomplete="off"></label><div class="full info">${s ? "Re-enter the URL and credentials when changing a source." : "Library URL example: https://huhu.to · Add only sources you are entitled to access."}</div><label>Username<input name="username" autocomplete="off"></label><label>Password<input name="password" type="password" autocomplete="new-password"></label><label class="full">Access token (if required)<input name="token" type="password" autocomplete="off"></label><label class="full">XMLTV guide URL (optional)<input name="guideURL" type="url" autocomplete="off"></label><label class="full check"><input name="allowHTTP" type="checkbox" ${s?.allowHTTP ? "checked" : ""}>Allow local HTTP for this source</label><label class="full check"><input name="allowInsecureStreams" type="checkbox" ${s?.allowInsecureStreams ? "checked" : ""}>Allow unencrypted media streams for this source</label><label class="full check"><input name="allowProviderFetch" type="checkbox" ${s?.allowProviderFetch ? "checked" : ""}>Allow provider-assisted requests to public hosts</label><p class="full info">Provider assistance sends a public host response to this library provider to resolve playback. Your Oxa account and other server credentials are excluded.</p></div><p class="form-error error" role="alert"></p><div class="dialog-actions"><button type="button" data-action="sheet.close">Cancel</button><button class="primary" type="submit">${s ? "Save Source" : "Connect Source"}</button></div></form>`,
+    `${!s ? '<div class="panel"><h3>Start with a library</h3><p>Import huhu.to with one click, or connect your own server below.</p><button class="primary" data-action="source.huhu">Import huhu.to</button></div>' : ""}<form id="source-form"><input type="hidden" name="id" value="${esc(s?.id || "")}"><div class="field-grid"><label>Name<input name="name" required maxlength="160" value="${esc(s?.name || "")}"></label><label>Source type<select name="kind">${kinds.map((k) => `<option ${k === (s?.kind || args.kind) ? "selected" : ""}>${esc(k)}</option>`).join("")}</select></label><label class="full">Server or library URL<input name="endpoint" type="url" required placeholder="https://your-server.example" autocomplete="off"></label><div class="full info">${s ? "Re-enter the URL and credentials when changing a source." : "Library URL example: https://huhu.to · Add only sources you are entitled to access."}</div><label>Username<input name="username" autocomplete="off"></label><label>Password<input name="password" type="password" autocomplete="new-password"></label><label class="full">Access token (if required)<input name="token" type="password" autocomplete="off"></label><label class="full">XMLTV guide URL (optional)<input name="guideURL" type="url" autocomplete="off"></label>${webMode ? '<p class="full info">Use a reachable HTTPS server address. Local HTTP servers are available in the native apps.</p>' : `<label class="full check"><input name="allowHTTP" type="checkbox" ${s?.allowHTTP ? "checked" : ""}>Allow local HTTP for this source</label>`}<label class="full check"><input name="allowInsecureStreams" type="checkbox" ${s?.allowInsecureStreams ? "checked" : ""}>Allow unencrypted media streams for this source</label><label class="full check"><input name="allowProviderFetch" type="checkbox" ${s?.allowProviderFetch ? "checked" : ""}>Allow provider-assisted requests to public hosts</label><p class="full info">Provider assistance sends a public host response to this library provider to resolve playback. Your Oxa account and other server credentials are excluded.</p></div><p class="form-error error" role="alert"></p><div class="dialog-actions"><button type="button" data-action="sheet.close">Cancel</button><button class="primary" type="submit">${s ? "Save Source" : "Connect Source"}</button></div></form>`,
   );
 }
 function confirm(title: string, message: string, action: string, args: any) {
@@ -458,11 +505,12 @@ function accountForm(mode = "signin") {
   d.innerHTML =
     `<header><h2>${titles[mode] || "Your account"}</h2><button data-action="account.close" aria-label="Close account">×</button></header>` +
     (mode === "manage"
-      ? `<p>${esc(a.email)}</p><p class="info">${esc(a.message || "Your connections, watch history and watchlist sync between your devices. Downloads stay on this device.")}</p><div class="sources-choices">${!a.unlocked ? button("Unlock Connections", "account.mode", { mode: "unlock" }) : ""}${button("Sync Now", "sync")}${button("Change Password", "account.mode", { mode: "password" })}${button("Sign Out", "signout")}${button("Delete Account", "account.mode", { mode: "delete" })}</div>`
+      ? `<p>${esc(a.email)}</p><p class="info">${esc(a.message || (downloadsEnabled ? "Your connections, watch history and watchlist sync between your devices. Downloads stay on this device." : "Your connections, watch history and watchlist sync between your devices."))}</p><div class="sources-choices">${!a.unlocked ? button("Unlock Connections", "account.mode", { mode: "unlock" }) : ""}${button("Sync Now", "sync")}${button("Change Password", "account.mode", { mode: "password" })}${button("Sign Out", "signout")}${button("Delete Account", "account.mode", { mode: "delete" })}</div>`
       : `<p>${esc(mode === "signin" ? "Sign in to bring your connections, watchlist and progress to this device. Your account is optional." : mode === "verify" ? "Enter the code from your email." : mode === "delete" ? "This permanently deletes your Oxa account and synced library data. Re-enter your password to confirm." : mode === "reset" ? "Your sources, watch history and watchlist are kept after a password reset." : mode === "unlock" ? "Use your account password to decrypt your synced server connections." : "")}</p><form id="account-form">${["signin", "signup", "forgot", "verify"].includes(mode) ? `<label>Email<input name="email" type="email" required autocomplete="email" value="${esc(accountEmail)}"></label>` : ""}${mode === "verify" ? '<label>Verification code<input name="code" required inputmode="numeric" autocomplete="one-time-code"></label>' : mode !== "forgot" ? `<label>${mode === "reset" || mode === "password" ? "New password" : "Password"}<input name="password" type="password" required ${["signup", "reset", "password"].includes(mode) ? 'minlength="10" autocomplete="new-password"' : 'autocomplete="current-password"'}></label>` : ""}${["signin", "signup"].includes(mode) ? '<label class="check"><input name="includeGuest" type="checkbox" checked>Include this device’s guest library in my account</label>' : ""}<p class="form-error error" role="alert"></p><button class="primary" type="submit">${mode === "signin" ? "Sign In" : mode === "signup" ? "Create Account" : mode === "forgot" ? "Send Recovery Code" : mode === "verify" ? "Verify Code" : mode === "delete" ? "Permanently Delete Account" : "Continue"}</button>${mode === "signin" ? `${button("Create Account", "account.mode", { mode: "signup" })}${button("Forgot Password?", "account.mode", { mode: "forgot" })}<label class="check"><input id="hide-welcome" type="checkbox" ${state.hideWelcome ? "checked" : ""}>Don’t show this message again</label>${button("Continue as Guest", "account.guest")}` : mode === "verify" ? button("Resend Registration Code", "account.resend") : button("Back to Sign In", "account.mode", { mode: "signin" })}</form>`);
   if (!d.open) d.showModal();
 }
 async function start(args: any, operation = "play") {
+  if (!downloadsEnabled && operation === "download") return;
   const result = await cmd(operation, args);
   if (!result) return;
   if (result.choices) {
@@ -474,11 +522,11 @@ async function start(args: any, operation = "play") {
           (c: any) =>
             `<button data-action="${operation}" data-args="${esc(JSON.stringify({ ...args, choiceID: c.id }))}"><strong>${esc(c.name || c.providerName || "Server")}</strong><small>${esc([c.quality, c.languages?.join(", "), c.providerName].filter(Boolean).join(" · "))}</small></button>`,
         )
-        .join("")}</div>`,
+        .join("")}</div>${providerAssistance(result.media?.sourceID)}`,
     );
     return;
   }
-  if (result.queued) {
+  if (downloadsEnabled && result.queued) {
     $("#sheet").close();
     toast("Added to downloads.");
     return;
@@ -512,6 +560,12 @@ function destroyPlayer() {
   video.querySelectorAll("track").forEach((e) => e.remove());
 }
 async function showPlayer(result: any) {
+  if (webMode && !allowedMediaURL(result.url))
+    throw Error(
+      "This playback source is unavailable. Choose another server or refresh the source.",
+    );
+  if (webMode && result.caption && !allowedMediaURL(result.caption, true))
+    result = { ...result, caption: undefined };
   await saveProgress();
   destroyPlayer();
   playback = result;
@@ -634,7 +688,7 @@ async function next() {
   if (r.choices) {
     sheet(
       "Next Episode",
-      `<div class="sources-choices">${r.choices.map((c: any) => button(c.name || "Server", "play", { id: r.media.id, choiceID: c.id })).join("")}</div>`,
+      `<div class="sources-choices">${r.choices.map((c: any) => button(c.name || "Server", "play", { id: r.media.id, choiceID: c.id })).join("")}</div>${providerAssistance(r.media?.sourceID)}`,
     );
   } else await showPlayer(r);
 }
@@ -717,7 +771,16 @@ $("#forward").onclick = () =>
     video.currentTime + 10,
   ));
 $("#next").onclick = () => void run(next);
-$("#fullscreen").onclick = () => void run(() => cmd("fullscreen"));
+$("#fullscreen").onclick = () =>
+  void run(async () => {
+    if (!webMode) return cmd("fullscreen");
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else if ($("#player").requestFullscreen)
+      await $("#player").requestFullscreen();
+    else if ((video as any).webkitEnterFullscreen)
+      (video as any).webkitEnterFullscreen();
+    else throw Error("Fullscreen is unavailable in this browser.");
+  });
 $("#fit").onclick = () => {
   const fill = $("#player").classList.toggle("fill");
   $("#fit").textContent = fill ? "Fit" : "Fill";
@@ -731,11 +794,17 @@ $("#pip").onclick = () =>
 $("#close-player").onclick = () =>
   void run(async () => {
     await saveProgress();
+    // In the browser, returning to the library is the visible completion of
+    // close. Make the IndexedDB durability barrier precede that completion so
+    // an immediate reload does not discard the position just recorded above.
+    if (webMode) await cmd("closePlayer");
     destroyPlayer();
     playback = null;
     $("#player").hidden = true;
     document.body.classList.remove("player-open");
-    await cmd("closePlayer");
+    if (webMode && document.fullscreenElement)
+      await document.exitFullscreen().catch(() => {});
+    if (!webMode) await cmd("closePlayer");
     render();
   });
 $("#volume").oninput = (e: any) => (video.volume = Number(e.target.value));
@@ -759,7 +828,7 @@ $("#subtitles").onchange = (e: any) => {
 $("#import-caption").onclick = () =>
   void run(async () => {
     const result = await cmd("caption.import");
-    if (!result) return;
+    if (!result || (webMode && !allowedMediaURL(result.url, true))) return;
     for (const t of Array.from(video.textTracks)) t.mode = "disabled";
     video.querySelectorAll("track").forEach((t) => t.remove());
     const track = document.createElement("track");
@@ -777,6 +846,7 @@ document.addEventListener("click", (event: any) => {
   const b = event.target.closest("button");
   if (!b) return;
   if (b.dataset.page) {
+    if (!downloadsEnabled && b.dataset.page === "Downloads") return;
     page = b.dataset.page;
     query = "";
     searchEpoch++;
@@ -794,6 +864,13 @@ document.addEventListener("click", (event: any) => {
     void run(async () => {
       const a = b.dataset.action,
         args = JSON.parse(b.dataset.args || "{}");
+      if (
+        !downloadsEnabled &&
+        (a === "download" ||
+          a.startsWith("transfer.") ||
+          a === "downloadDirectory")
+      )
+        return;
       if (a === "rows.more") {
         visibleCounts.set(args.key, visibleCount(args.key) + 100);
         if (args.key === "episodes") drawDetail();
@@ -831,7 +908,9 @@ document.addEventListener("click", (event: any) => {
       if (a === "source.confirm-remove") {
         confirm(
           "Remove Source?",
-          "This removes the source from your synced library. Saved downloads and watch progress are kept.",
+          downloadsEnabled
+            ? "This removes the source from your synced library. Saved downloads and watch progress are kept."
+            : "This removes the source from your synced library. Your watch progress is kept.",
           "source.remove",
           args,
         );
@@ -983,7 +1062,7 @@ document.addEventListener("submit", (event: any) => {
           "allowInsecureStreams",
           "allowProviderFetch",
         ])
-          data[key] = form.elements[key].checked;
+          data[key] = form.elements[key]?.checked === true;
         await cmd(data.id ? "source.edit" : "source.add", data);
         $("#sheet").close();
         state = await cmd("state");
@@ -1036,6 +1115,28 @@ document.addEventListener("submit", (event: any) => {
 document.addEventListener("change", (event: any) => {
   const e = event.target;
   void run(async () => {
+    if (webMode && e.matches("[data-provider-assistance]")) {
+      const id = e.dataset.sourceId,
+        enabled = e.checked;
+      const account = lastAccount;
+      const version = (permissionVersions.get(id) || 0) + 1;
+      permissionVersions.set(id, version);
+      try {
+        const result = await cmd("source.permission", { id, enabled });
+        if (
+          permissionVersions.get(id) === version &&
+          account === lastAccount &&
+          result?.sources
+        ) {
+          state = result;
+          sidebar();
+        }
+      } catch (error) {
+        if (permissionVersions.get(id) === version) e.checked = !enabled;
+        throw error;
+      }
+      return;
+    }
     if (e.id === "source-filter") {
       source = e.value;
       render();

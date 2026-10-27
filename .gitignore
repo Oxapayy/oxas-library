@@ -36,3 +36,16 @@ desktop/playwright-report/
 /supabase/
 /Config/Cloud.local.json
 /Resources/Cloud.local.json
+
+# Browser client build and private hosted gateway
+/web/node_modules/
+/web/dist/
+/web/test-results/
+/web/test-results-site/
+/web/test-results-large/
+/web/test-results-hashed/
+/web/playwright-report/
+/web-private/
+/website/app/
+/website/web/
+/website/_headers

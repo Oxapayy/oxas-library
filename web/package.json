@@ -1,0 +1,26 @@
+{
+  "name": "oxas-library-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/test.mjs",
+    "test:ui": "playwright test"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "@supabase/supabase-js": "2.118.0",
+    "hls.js": "1.7.3",
+    "mpegts.js": "1.8.2"
+  },
+  "devDependencies": {
+    "@netlify/functions": "6.0.3",
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.10.1",
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3"
+  }
+}

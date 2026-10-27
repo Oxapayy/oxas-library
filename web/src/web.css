@@ -1,0 +1,272 @@
+/* The web client keeps the apps' black canvas and translucent functional chrome. */
+html,
+body.web-app {
+  background: #000;
+  min-height: 100%;
+}
+body.web-app {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+.web-app #sidebar {
+  padding-top: 30px;
+}
+.web-brandbar {
+  display: none;
+}
+.web-app #content {
+  padding-top: 40px;
+  min-height: 100dvh;
+}
+.web-app button,
+.web-app select,
+.web-app input {
+  touch-action: manipulation;
+}
+.web-app .empty button + button {
+  margin-left: 8px;
+}
+.web-app #player:fullscreen {
+  width: 100%;
+  height: 100%;
+}
+.web-app .player-top {
+  top: max(16px, env(safe-area-inset-top));
+}
+.web-app .player-bottom {
+  bottom: max(20px, env(safe-area-inset-bottom));
+}
+.web-app #playback-error {
+  width: min(500px, calc(100% - 32px));
+}
+.web-app #account {
+  width: min(460px, calc(100vw - 32px));
+}
+.web-app .source-actions {
+  flex-wrap: wrap;
+}
+.web-app .timeline,
+.web-app .continue-card small,
+.web-app .channel small {
+  font-variant-numeric: tabular-nums;
+}
+.web-app .provider-assistance {
+  margin-top: 22px;
+}
+.web-app .provider-assistance .row {
+  padding-bottom: 8px;
+}
+.web-app .provider-assistance p {
+  margin-top: 0;
+}
+
+@media (max-width: 760px) {
+  .web-brandbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: max(18px, env(safe-area-inset-top)) 20px 0;
+  }
+  .web-brand-home {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0;
+    min-height: 44px;
+    background: transparent;
+    font-weight: 650;
+    font-size: 17px;
+    letter-spacing: -0.4px;
+  }
+  .web-brand-home:hover {
+    background: transparent;
+  }
+  .web-brand-home svg {
+    width: 29px;
+    height: 29px;
+  }
+  .web-account-button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    min-height: 44px;
+    padding: 10px;
+    background: #ffffff0c;
+    border: 1px solid #ffffff14;
+  }
+  .web-account-button svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  /* Four destinations form the same floating glass tab bar as the iPhone app. */
+  .web-app #sidebar {
+    z-index: 10;
+    inset: auto 14px max(12px, env(safe-area-inset-bottom));
+    width: auto;
+    padding: 5px;
+    border: 1px solid #ffffff29;
+    border-radius: 40px;
+    background: #28282bbd;
+    backdrop-filter: blur(30px) saturate(140%);
+    box-shadow:
+      inset 0 1px #ffffff1c,
+      0 8px 30px #0006;
+    display: block;
+  }
+  .web-app #sidebar .brand,
+  .web-app #sidebar .sidebar-account {
+    display: none;
+  }
+  .web-app nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 3px;
+  }
+  .web-app nav button {
+    flex-direction: column;
+    justify-content: center;
+    min-height: 59px;
+    padding: 7px 4px;
+    gap: 3px;
+    border-radius: 32px;
+  }
+  .web-app nav .label {
+    display: block;
+    font-size: 11px;
+    font-weight: 550;
+    letter-spacing: 0.01em;
+  }
+  .web-app nav svg {
+    width: 21px;
+    height: 21px;
+  }
+  .web-app nav button[aria-current="page"] {
+    background: #0008;
+  }
+  .web-app #content {
+    margin-left: 0;
+    padding: 26px 20px calc(110px + env(safe-area-inset-bottom));
+  }
+  .web-app .page-heading {
+    flex-wrap: wrap;
+    margin-bottom: 26px;
+  }
+  .web-app .page-heading h1 {
+    font-size: 30px;
+    letter-spacing: -0.7px;
+  }
+  .web-app .segments {
+    width: 100%;
+  }
+  .web-app .segments button {
+    flex: 1;
+    padding-inline: 7px;
+    font-size: 13px;
+  }
+  .web-app #source-filter {
+    margin-left: auto;
+  }
+  .web-app .grid {
+    /* Two posters share the canvas: 2 × ((100% - 14px) / 2) + 14px. */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 14px;
+  }
+  .web-app .continue-card {
+    flex-basis: min(310px, calc(100vw - 60px));
+  }
+  .web-app .channel {
+    flex-wrap: wrap;
+  }
+  .web-app .channel .text {
+    min-width: 140px;
+  }
+  .web-app input,
+  .web-app select {
+    font-size: 16px;
+  }
+  .web-app button,
+  .web-app select,
+  .web-app input:not([type="checkbox"]):not([type="range"]) {
+    min-height: 44px;
+  }
+  .web-app dialog header button {
+    width: 44px;
+    min-height: 44px;
+  }
+  .web-app dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 32px);
+    padding: 20px;
+  }
+  .web-app #account {
+    width: min(460px, calc(100vw - 24px));
+  }
+  .web-app .detail-heading h1 {
+    font-size: 26px;
+  }
+  .web-app #toast {
+    left: 50%;
+    bottom: calc(94px + env(safe-area-inset-bottom));
+    width: max-content;
+    max-width: calc(100vw - 32px);
+  }
+  .web-app .player-top {
+    inset-inline: 10px;
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  .web-app .player-bottom {
+    inset-inline: 10px;
+    padding: 13px;
+    border-radius: 22px;
+  }
+  .web-app .player-buttons {
+    gap: 5px;
+  }
+  .web-app .player-buttons #tracks,
+  .web-app .player-buttons #pip {
+    display: block;
+  }
+  .web-app #up-next {
+    right: 12px;
+    bottom: calc(220px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - 24px);
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .web-app .player-top {
+    top: 10px;
+  }
+  .web-app .player-bottom {
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  .web-app .player-buttons {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .web-app .player-buttons > * {
+    flex-shrink: 0;
+  }
+  .web-app #up-next {
+    bottom: 125px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .web-app #sidebar {
+    backdrop-filter: none;
+    background: #202023;
+  }
+}
+@media (prefers-contrast: more) {
+  .web-app #sidebar {
+    background: #181818;
+    border-color: #aaa;
+  }
+}

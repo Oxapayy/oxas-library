@@ -86,6 +86,8 @@ Build macOS packages on macOS with `npm run pack:mac`; build the combined x64/AR
 
 macOS packages target version 14 and later. Windows packages target Windows 10/11 on x64 and ARM64. Releases have no publisher signing certificate or Apple notarization. macOS uses technical ad-hoc signing. Platform installation warnings are expected. Compatible codecs and source access still depend on the server; no universal provider or format claim is made.
 
+The browser client is in `web/`, without offline downloads. See [web build, gateway contract and browser limits](docs/WEB.md). Its hosted gateway remains private; compiling the public client does not provision that service.
+
 The website is plain HTML/CSS/JavaScript in `website/`; `netlify.toml` publishes that folder. It uses real iPhone screenshots supplied by the project owner, an interactive screenshot selector and full-size viewer, keyboard-accessible platform tabs, requested translucent glass materials and reduced-motion/transparency fallbacks.
 
 ## License and attribution
