@@ -313,6 +313,62 @@ test("file download resumes partial files and rejects HTML as media", async () =
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+test("large artwork catalogs and segment churn do not evict playback roots", async () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "oxa-transport-retention-"),
+  );
+  fs.writeFileSync(path.join(root, "video.mp4"), "0123456789");
+  const fixture = await serve((_req, res) => {
+    res.setHeader("Content-Type", "image/png");
+    res.end("owned image");
+  });
+  const transport = new MediaTransport();
+  try {
+    const playback = transport.file(root, "video.mp4");
+    const firstArtwork = transport.artwork(fixture.base + "/poster-0", source);
+    for (let i = 1; i <= 20001; i++)
+      transport.artwork(fixture.base + `/poster-${i}`, source);
+    assert.equal(
+      (await transport.handle(new Request(firstArtwork))).status,
+      200,
+    );
+    assert.equal(
+      await (await transport.handle(new Request(playback))).text(),
+      "0123456789",
+    );
+    const oldChild = transport.file(root, "video.mp4", true);
+    let lastChild = "";
+    for (let i = 0; i < 20001; i++)
+      lastChild = transport.file(root, "video.mp4", true);
+    assert.equal(
+      (await transport.handle(new Request(oldChild))).status,
+      404,
+      "bounded segment cache evicts old segments only",
+    );
+    assert.equal((await transport.handle(new Request(lastChild))).status, 200);
+    assert.equal(
+      (await transport.handle(new Request(playback))).status,
+      200,
+      "active root survives segment churn",
+    );
+    transport.closePlayback();
+    assert.equal((await transport.handle(new Request(playback))).status, 404);
+    assert.equal(
+      (await transport.handle(new Request(firstArtwork))).status,
+      200,
+      "closing video keeps catalog artwork valid",
+    );
+    transport.forget();
+    assert.equal(
+      (await transport.handle(new Request(firstArtwork))).status,
+      404,
+      "account scope change forgets every capability",
+    );
+  } finally {
+    await fixture.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 test("HLS VOD download rewrites extensionless playlists and rejects live streams", async () => {
   let mode = "vod";
   const fixture = await serve((req, res) => {
@@ -426,6 +482,20 @@ function fakeCloud() {
     read: (k: string, f: any) => vault[k] ?? f,
     write: (k: string, v: any) => (vault[k] = v),
     save: () => {},
+    flushPending: () => {},
+    prepareSwitch(scope: string) {
+      return {
+        scope: scope.toLowerCase(),
+        state:
+          scope.toLowerCase() === this.scope.toLowerCase()
+            ? this.state
+            : empty(),
+      };
+    },
+    commitSwitch(staged: any) {
+      this.scope = staged.scope;
+      this.state = staged.state;
+    },
     switch(scope: string) {
       this.scope = scope;
       this.state = empty();
@@ -704,4 +774,36 @@ test("completed series retain new episodes without marking the original catalog 
   assert.deepEqual(state.newEpisodeIDs, [e2.id]);
   episodeChanges(state, source.id, "show", [e1, e2]);
   assert.deepEqual(state.newEpisodeIDs, [e2.id]);
+});
+
+test("account deletion reauthenticates and uses the edge function DELETE contract", async () => {
+  const { c } = fakeCloud();
+  const events: string[] = [];
+  c.client.auth.signInWithPassword = async (args: any) => {
+    assert.equal(args.email, "fixture@example.org");
+    assert.equal(args.password, "current-password");
+    events.push("reauth");
+    return { error: null };
+  };
+  const invoke = async (name: string, args: any) => {
+    assert.equal(name, "delete-account");
+    assert.equal(args.method, "DELETE");
+    events.push("delete");
+    return { error: null };
+  };
+  c.client = { auth: c.client.auth, functions: { invoke } };
+  c.signout = async () => {
+    events.push("signout");
+  };
+  await c.deleteAccount("current-password");
+  assert.deepEqual(events, ["reauth", "delete", "signout"]);
+  c.client.auth.signInWithPassword = async () => ({
+    error: Error("wrong password"),
+  });
+  await assert.rejects(c.deleteAccount("wrong"), /current password/);
+  assert.equal(
+    events.length,
+    3,
+    "failed reauthentication never invokes deletion",
+  );
 });

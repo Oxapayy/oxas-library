@@ -6,6 +6,8 @@ import http from "node:http";
 import { once } from "node:events";
 test("website episodes, HLS, next episode, full-season offline files, MPEG-TS and guide", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "oxa-library-ui-"));
+  const injectedOrdinal =
+    '\"><button data-action="account" data-args=\'{"action":"reset"}\'>Injected provider action</button><option value="';
   let base = "";
   let released = false;
   const video = fs.readFileSync("../scripts/fixtures/test-video.mp4"),
@@ -35,6 +37,12 @@ test("website episodes, HLS, next episode, full-season offline files, MPEG-TS an
     images: { poster: "/poster.png", backdrops: ["/poster.png"] },
     catalogs: [
       { id: "season-one", type: "video", name: "Season 1", season: 1 },
+      {
+        id: "hostile-season",
+        type: "video",
+        name: "Untrusted",
+        season: injectedOrdinal,
+      },
     ],
   };
   const server = http.createServer((req, res) => {
@@ -172,6 +180,19 @@ test("website episodes, HLS, next episode, full-season offline files, MPEG-TS an
     await p.getByRole("button", { name: /Fixture Series/ }).click();
     await expect(
       p.getByRole("heading", { name: "First Episode" }),
+    ).toBeVisible();
+    await expect(p.locator('#sheet [data-action="account"]')).toHaveCount(0);
+    await expect(
+      p.getByText("Injected provider action", { exact: true }),
+    ).toHaveCount(0);
+    await expect(p.locator("#season option")).toHaveCount(1);
+    await p.getByRole("button", { name: "☆ Watchlist", exact: true }).click();
+    await expect(
+      p.getByRole("button", { name: "★ Saved", exact: true }),
+    ).toBeVisible();
+    await p.getByRole("button", { name: "★ Saved", exact: true }).click();
+    await expect(
+      p.getByRole("button", { name: "☆ Watchlist", exact: true }),
     ).toBeVisible();
     await p
       .locator(".episode")

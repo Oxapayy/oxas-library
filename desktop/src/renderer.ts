@@ -71,6 +71,18 @@ let toastTimer: any,
   progressTimer: any,
   lastAccount = "";
 const video = $("#video") as HTMLVideoElement;
+const visibleCounts = new Map<string, number>();
+const visibleCount = (key: string) => visibleCounts.get(key) || 100;
+const showMore = (key: string, total: number) =>
+  total > visibleCount(key)
+    ? button(
+        `Show more (${Math.min(visibleCount(key), total)} of ${total})`,
+        "rows.more",
+        { key },
+      )
+    : "";
+let lastSidebarHTML = "",
+  lastContentHTML = "";
 function toast(message: string) {
   $("#toast").textContent = message;
   $("#toast").hidden = false;
@@ -94,7 +106,7 @@ const button = (
   `<button type="button" ${primary ? 'class="primary"' : ""} data-action="${esc(action)}" data-args="${esc(JSON.stringify(args))}">${esc(label)}</button>`;
 const image = (url: string, alt = "", cls = "") =>
   url && url.startsWith("oxa://")
-    ? `<img src="${esc(url)}" alt="${esc(alt)}" class="${esc(cls)}" loading="lazy">`
+    ? `<img src="${esc(url)}" alt="${esc(alt)}" class="${esc(cls)}" loading="lazy" decoding="async">`
     : "";
 const episodeLabel = (m: any) =>
   m.kind === "episode"
@@ -117,26 +129,43 @@ function blank(title: string, description: string, action = "") {
 }
 function sidebar() {
   const account = state.account;
-  $("#sidebar").innerHTML =
-    `<div class="brand"><span class="brand-mark">▶</span><span class="name">Oxa’s Library</span></div><nav>${Object.keys(
-      icons,
+  const html = `<div class="brand"><span class="brand-mark">▶</span><span class="name">Oxa’s Library</span></div><nav>${Object.keys(
+    icons,
+  )
+    .map(
+      (name) =>
+        `<button data-page="${name}" ${page === name ? 'aria-current="page"' : ""}><svg viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg><span class="label">${name}</span></button>`,
     )
-      .map(
-        (name) =>
-          `<button data-page="${name}" ${page === name ? 'aria-current="page"' : ""}><svg viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg><span class="label">${name}</span></button>`,
-      )
-      .join(
-        "",
-      )}</nav><button class="sidebar-account" data-action="account.open">${account.signedIn ? "Your account" : "Sign in"}<small>${esc(account.email || "Your collection. On your terms.")}</small></button>`;
+    .join(
+      "",
+    )}</nav><button class="sidebar-account" data-action="account.open">${account.signedIn ? "Your account" : "Sign in"}<small>${esc(account.email || "Your collection. On your terms.")}</small></button>`;
+  if (html !== lastSidebarHTML) {
+    $("#sidebar").innerHTML = html;
+    lastSidebarHTML = html;
+  }
 }
 function render() {
   sidebar();
   const content = $("#content");
-  if (page === "Library") content.innerHTML = library();
-  else if (page === "Search") content.innerHTML = search();
-  else if (page === "IPTV") content.innerHTML = iptv();
-  else if (page === "Downloads") content.innerHTML = downloads();
-  else content.innerHTML = settings();
+  const pageHTML =
+    page === "Library"
+      ? library()
+      : page === "Search"
+        ? search()
+        : page === "IPTV"
+          ? iptv()
+          : page === "Downloads"
+            ? downloads()
+            : settings();
+  const html =
+    (state.storageError
+      ? `<div class="panel error" role="alert">${esc(state.storageError)} ${button("Retry Saving", "storage.retry")}</div>`
+      : "") + pageHTML;
+  // Byte updates must not tear down unrelated posters, focus or image requests.
+  if (html !== lastContentHTML) {
+    content.innerHTML = html;
+    lastContentHTML = html;
+  }
 }
 function poster(m: any) {
   return `<button class="poster" data-action="detail" data-args="${esc(JSON.stringify({ id: m.id }))}"><span class="cover">${image(m.poster || m.backdrop) || "▷"}</span><strong>${esc(m.title)}</strong><small>${esc(episodeLabel(m))}</small></button>`;
@@ -144,6 +173,9 @@ function poster(m: any) {
 function library() {
   let rows = state.media.filter(
     (m: any) => m.kind === "movie" || m.kind === "series",
+  );
+  const newEpisodes = state.media.filter(
+    (m: any) => m.newEpisode && (!source || m.sourceID === source),
   );
   const continued = state.media
     .filter(
@@ -154,11 +186,16 @@ function library() {
     )
     .sort((a: any, b: any) => b.progress.playedAt - a.progress.playedAt)
     .filter(
-      (m: any, i: number, all: any[]) =>
-        m.kind !== "episode" ||
-        all.findIndex(
-          (x) => x.sourceID === m.sourceID && x.seriesID === m.seriesID,
-        ) === i,
+      (() => {
+        const seen = new Set<string>();
+        return (m: any) => {
+          if (m.kind !== "episode") return true;
+          const key = JSON.stringify([m.sourceID, m.seriesID]);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        };
+      })(),
     );
   if (filter === "Movies") rows = rows.filter((m: any) => m.kind === "movie");
   if (filter === "Series") rows = rows.filter((m: any) => m.kind === "series");
@@ -173,21 +210,23 @@ function library() {
     (state.sources.length
       ? `<div class="toolbar"><div class="segments">${["All", "Movies", "Series", "Watchlist"].map((x) => `<button data-filter="${x}" aria-pressed="${filter === x}">${x}</button>`).join("")}</div><span class="spacer"></span><select id="source-filter" aria-label="Source"><option value="">All sources</option>${state.sources.map((s: any) => `<option value="${esc(s.id)}" ${s.id === source ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></div>`
       : "") +
-    (state.media.some(
-      (m: any) => m.newEpisode && (!source || m.sourceID === source),
-    )
-      ? `<h2>New Episodes</h2><div class="continue">${state.media
-          .filter(
-            (m: any) => m.newEpisode && (!source || m.sourceID === source),
-          )
+    (newEpisodes.length
+      ? `<h2>New Episodes</h2><div class="continue">${newEpisodes
+          .slice(0, visibleCount("new-episodes"))
           .map(
             (m: any) =>
               `<button class="continue-card" data-action="play" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.backdrop || m.poster) || '<div class="still"></div>'}<div class="copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))} · ${esc(m.title)}</small><span>▶ Play Episode</span></div></button>`,
           )
-          .join("")}</div>`
+          .join("")}</div>${showMore("new-episodes", newEpisodes.length)}`
       : "") +
     (continued.length
-      ? `<h2>Continue Watching</h2><div class="continue">${continued.map((m: any) => `<button class="continue-card" data-action="play" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.backdrop || m.poster) || '<div class="still"></div>'}<div class="copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small><progress max="${m.progress.duration || 1}" value="${m.progress.seconds}"></progress><small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} remaining</small></div></button>`).join("")}</div>`
+      ? `<h2>Continue Watching</h2><div class="continue">${continued
+          .slice(0, visibleCount("continued"))
+          .map(
+            (m: any) =>
+              `<button class="continue-card" data-action="play" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.backdrop || m.poster) || '<div class="still"></div>'}<div class="copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small><progress max="${esc(m.progress.duration || 1)}" value="${esc(m.progress.seconds)}"></progress><small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} remaining</small></div></button>`,
+          )
+          .join("")}</div>${showMore("continued", continued.length)}`
       : "") +
     (!state.sources.length
       ? blank(
@@ -197,7 +236,7 @@ function library() {
             button("Connect Your Own Server", "source.form"),
         )
       : rows.length
-        ? `<div class="section-heading"><h2>${filter === "All" ? "Your Collection" : esc(filter)}</h2><span class="muted">${rows.length}</span></div><div class="grid">${rows.map(poster).join("")}</div><div class="section-heading">${button("Load more", "more")}</div>`
+        ? `<div class="section-heading"><h2>${filter === "All" ? "Your Collection" : esc(filter)}</h2><span class="muted">${rows.length}</span></div><div class="grid">${rows.slice(0, visibleCount("library")).map(poster).join("")}</div><div class="section-heading">${showMore("library", rows.length)}${button("Load more from sources", "more")}</div>`
         : blank(
             state.sources.some((s: any) => s.refreshing)
               ? "Loading your library…"
@@ -220,23 +259,22 @@ function search() {
         (!q ||
           `${m.title} ${m.seriesTitle || ""}`.toLocaleLowerCase().includes(q)),
     ),
+    localIDs = new Set(local.map((m: any) => m.id)),
     rows = [
       ...local,
       ...searchRows.filter(
-        (m) =>
-          ["movie", "series"].includes(m.kind) &&
-          !local.some((x: any) => x.id === m.id),
+        (m) => ["movie", "series"].includes(m.kind) && !localIDs.has(m.id),
       ),
     ];
   return (
     heading("Search") +
     `<div class="toolbar"><input class="search-input" id="search-query" type="search" placeholder="Films and series" aria-label="Search your library" value="${esc(query)}">${button("Search", "search.run")}</div><div class="search-results">${rows
-      .slice(0, 250)
+      .slice(0, visibleCount("search"))
       .map(
         (m: any) =>
           `<button class="row" data-action="detail" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.poster || m.backdrop)}<span class="text"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small></span><span>›</span></button>`,
       )
-      .join("")}</div>` +
+      .join("")}</div>${showMore("search", rows.length)}` +
     (!rows.length
       ? blank(
           "Find your next watch.",
@@ -250,15 +288,21 @@ function iptv() {
     groups = [...new Set(rows.map((m: any) => m.group).filter(Boolean))].sort();
   if (group) rows = rows.filter((m: any) => m.group === group);
   if (starred) rows = rows.filter((m: any) => m.favorite);
+  const channelPrograms = new Map<string, any[]>();
+  for (const p of state.programs) {
+    const entries = channelPrograms.get(p.mediaID);
+    if (entries) entries.push(p);
+    else channelPrograms.set(p.mediaID, [p]);
+  }
   if (query)
     rows = rows.filter(
       (m: any) =>
         m.title.toLowerCase().includes(query.toLowerCase()) ||
-        state.programs.some(
-          (p: any) =>
-            p.mediaID === m.id &&
+        channelPrograms
+          .get(m.id)
+          ?.some((p: any) =>
             p.title.toLowerCase().includes(query.toLowerCase()),
-        ),
+          ),
     );
   const now = Date.now() / 1000 - 978307200;
   return (
@@ -267,13 +311,14 @@ function iptv() {
       button("+ Add Playlist", "source.form", { kind: "M3U playlist" }, true),
     ) +
     `<div class="toolbar">${button(starred ? "★ Favorites" : "☆ All channels", "channels.favorites")}<input id="channel-query" type="search" aria-label="Search channels" placeholder="Find a channel" value="${esc(query)}"><select id="channel-group" aria-label="Channel group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}" ${group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select></div><p>${rows.length} channels</p><div class="channel-list">${rows
+      .slice(0, visibleCount("channels"))
       .map((m: any) => {
-        const p = state.programs.find(
-          (p: any) => p.mediaID === m.id && p.start <= now && p.end > now,
-        );
+        const p = channelPrograms
+          .get(m.id)
+          ?.find((p: any) => p.start <= now && p.end > now);
         return `<article class="channel">${image(m.poster) || '<span class="station" aria-hidden="true">▱</span>'}<div class="text"><strong>${esc(m.title)}</strong><small>${esc(p?.title || m.group || "Live TV")}</small>${p ? `<progress max="${p.end - p.start}" value="${now - p.start}"></progress>` : ""}${button("Program Guide", "guide", { id: m.id })}</div>${button("Play", "play", { id: m.id })}${button(m.favorite ? "★" : "☆", "favorite", { id: m.id })}</article>`;
       })
-      .join("")}</div>` +
+      .join("")}</div>${showMore("channels", rows.length)}` +
     (!rows.length
       ? blank(
           "Live TV, in your library.",
@@ -288,11 +333,12 @@ function downloads() {
     `<p>Saved on this device. Downloads stay available without a server connection.</p>` +
     (state.transfers.length
       ? state.transfers
+          .slice(0, visibleCount("downloads"))
           .map(
             (t: any) =>
-              `<article class="panel transfer"><div class="row"><div class="text"><strong>${esc(t.media.seriesTitle || t.media.title)}</strong><small>${esc(episodeLabel(t.media))}</small><small>${esc(t.state)} · ${bytes(t.bytes)}</small>${t.state === "downloading" ? `<progress ${t.fraction != null ? `value="${t.fraction}" max="1"` : ""}></progress>` : ""}${t.error ? `<p class="error">${esc(t.error)}</p>` : ""}</div><div class="actions">${t.state === "ready" ? button("Play Offline", "play", { id: t.media.id, transferID: t.id }, true) : ["queued", "downloading"].includes(t.state) ? button("Cancel", "transfer.cancel", { id: t.id }) : button("Retry", "transfer.retry", { id: t.id })}${button("Delete", "transfer.confirm-delete", { id: t.id })}</div></div></article>`,
+              `<article class="panel transfer"><div class="row"><div class="text"><strong>${esc(t.media.seriesTitle || t.media.title)}</strong><small>${esc(episodeLabel(t.media))}</small><small>${esc(t.state)} · ${bytes(t.bytes)}</small>${t.state === "downloading" ? `<progress ${t.fraction != null ? `value="${esc(t.fraction)}" max="1"` : ""}></progress>` : ""}${t.error ? `<p class="error">${esc(t.error)}</p>` : ""}</div><div class="actions">${t.state === "ready" ? button("Play Offline", "play", { id: t.media.id, transferID: t.id }, true) : ["queued", "downloading"].includes(t.state) ? button("Cancel", "transfer.cancel", { id: t.id }) : button("Retry", "transfer.retry", { id: t.id })}${button("Delete", "transfer.confirm-delete", { id: t.id })}</div></div></article>`,
           )
-          .join("")
+          .join("") + showMore("downloads", state.transfers.length)
       : blank(
           "Take your favorites with you.",
           "Open a film or episode and choose Download. You can save an entire season from its series page.",
@@ -324,6 +370,7 @@ function sheet(title: string, html: string) {
   if (!d.open) d.showModal();
 }
 async function openDetail(id: string) {
+  visibleCounts.delete("episodes");
   sheet("Loading…", '<p class="busy">Reading this title</p>');
   detailData = await cmd("detail", { id });
   seasonNumber =
@@ -349,7 +396,19 @@ function drawDetail() {
           .map((number) => ({ number }));
   sheet(
     m.kind === "series" ? "Series" : "Details",
-    `${image(m.backdrop || m.poster, "", "detail-art")}<div class="detail-heading"><div class="text"><h1>${esc(m.seriesTitle || m.title)}</h1><p>${esc(episodeLabel(m))}</p></div>${button(m.favorite ? "★ Saved" : "☆ Watchlist", "favorite", { id: m.id })}</div><div class="detail-actions">${["movie", "series"].includes(m.kind) && state.preferences.externalMetadata ? button("Find Artwork", "metadata.search", { id: m.id }) : ""}${m.kind !== "series" ? button(m.progress?.seconds && !m.progress.completed ? `Resume at ${time(m.progress.seconds)}` : "Play", "play", { id: m.id }, true) + button("Download", "download", { id: m.id }) : ""}</div><p>${esc(m.overview || "")}</p>${m.kind === "series" ? `<div class="section-heading"><h2>Episodes</h2><select id="season" aria-label="Season">${seasons.map((s: any) => `<option value="${s.number}" ${seasonNumber === s.number ? "selected" : ""}>Season ${s.number}</option>`).join("")}</select></div>${button(`Download Season ${seasonNumber}`, "download", { id: m.id, season: seasonNumber })}${episodes.map((e: any) => `<article class="episode"><div class="row"><div class="text"><small>S${e.season || 1} · E${e.episode || 1}${e.progress?.completed ? " · Watched" : ""}</small><h3>${esc(e.title)}</h3></div>${button(e.progress?.seconds && !e.progress.completed ? "Resume" : "Play", "play", { id: e.id }, true)}</div><p>${esc(e.overview || "")}</p><footer>${button(e.download ? "Downloaded" : "Download", "download", { id: e.id })}${e.progress?.seconds ? `<small>Resume at ${time(e.progress.seconds)}</small>` : ""}</footer></article>`).join("") || "<p>Choose a season to load its episodes.</p>"}` : ""}`,
+    `${image(m.backdrop || m.poster, "", "detail-art")}<div class="detail-heading"><div class="text"><h1>${esc(m.seriesTitle || m.title)}</h1><p>${esc(episodeLabel(m))}</p></div>${button(m.favorite ? "★ Saved" : "☆ Watchlist", "favorite", { id: m.id })}</div><div class="detail-actions">${["movie", "series"].includes(m.kind) && state.preferences.externalMetadata ? button("Find Artwork", "metadata.search", { id: m.id }) : ""}${m.kind !== "series" ? button(m.progress?.seconds && !m.progress.completed ? `Resume at ${time(m.progress.seconds)}` : "Play", "play", { id: m.id }, true) + button("Download", "download", { id: m.id }) : ""}</div><p>${esc(m.overview || "")}</p>${
+      m.kind === "series"
+        ? `<div class="section-heading"><h2>Episodes</h2><select id="season" aria-label="Season">${seasons.map((s: any) => `<option value="${esc(s.number)}" ${seasonNumber === s.number ? "selected" : ""}>Season ${esc(s.number)}</option>`).join("")}</select></div>${button(`Download Season ${seasonNumber}`, "download", { id: m.id, season: seasonNumber })}${
+            episodes
+              .slice(0, visibleCount("episodes"))
+              .map(
+                (e: any) =>
+                  `<article class="episode"><div class="row"><div class="text"><small>S${esc(e.season || 1)} · E${esc(e.episode || 1)}${e.progress?.completed ? " · Watched" : ""}</small><h3>${esc(e.title)}</h3></div>${button(e.progress?.seconds && !e.progress.completed ? "Resume" : "Play", "play", { id: e.id }, true)}</div><p>${esc(e.overview || "")}</p><footer>${button(e.download ? "Downloaded" : "Download", "download", { id: e.id })}${e.progress?.seconds ? `<small>Resume at ${time(e.progress.seconds)}</small>` : ""}</footer></article>`,
+              )
+              .join("") || "<p>Choose a season to load its episodes.</p>"
+          }${showMore("episodes", episodes.length)}`
+        : ""
+    }`,
   );
 }
 function sourceForm(args: any = {}) {
@@ -720,6 +779,8 @@ document.addEventListener("click", (event: any) => {
   if (b.dataset.page) {
     page = b.dataset.page;
     query = "";
+    searchEpoch++;
+    searchRows = [];
     render();
     $("#content").focus();
     return;
@@ -733,6 +794,12 @@ document.addEventListener("click", (event: any) => {
     void run(async () => {
       const a = b.dataset.action,
         args = JSON.parse(b.dataset.args || "{}");
+      if (a === "rows.more") {
+        visibleCounts.set(args.key, visibleCount(args.key) + 100);
+        if (args.key === "episodes") drawDetail();
+        else render();
+        return;
+      }
       if (a === "sheet.close") {
         $("#sheet").close();
         return;
@@ -881,16 +948,16 @@ document.addEventListener("click", (event: any) => {
         $("#account").close();
         accountPassword = "";
       }
+      if (result?.sources) {
+        state = result;
+        render();
+      }
       if (a === "favorite" && detailData) {
         const m = state.media.find((m: any) => m.id === detailData.media.id);
         if (m) {
           detailData.media.favorite = m.favorite;
           drawDetail();
         }
-      }
-      if (result?.sources) {
-        state = result;
-        render();
       }
     });
 });
@@ -979,6 +1046,7 @@ document.addEventListener("change", (event: any) => {
     }
     if (e.id === "season") {
       seasonNumber = Number(e.value);
+      visibleCounts.delete("episodes");
       const rows = await cmd("season", {
         id: detailData.media.id,
         number: seasonNumber,
@@ -1039,7 +1107,19 @@ document.addEventListener("keydown", (e: KeyboardEvent) => {
       render();
     });
 });
-window.oxa.onUpdate((s) => {
+window.oxa.onUpdate((update) => {
+  const statuses = update.partial
+    ? new Map((update.mediaUpdates || []).map((m: any) => [m.id, m]))
+    : null;
+  const s = update.partial
+    ? {
+        ...state,
+        ...(update.transfers ? { transfers: update.transfers } : {}),
+        media: state.media.map((m: any) =>
+          statuses.has(m.id) ? { ...m, ...(statuses.get(m.id) as any) } : m,
+        ),
+      }
+    : update;
   const focused = document.activeElement as HTMLInputElement,
     typing = focused?.matches("input,select,textarea");
   if (lastAccount !== (s.account.email || "") && playback) {

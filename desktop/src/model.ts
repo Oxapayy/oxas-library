@@ -55,6 +55,19 @@ export const hash = (value: string) =>
 export const appleNow = () => Date.now() / 1000 - 978307200;
 export const appleDate = (value: string) =>
   Date.parse(value) / 1000 - 978307200;
+// Ordinals arrive from untrusted provider JSON and sometimes use numeric
+// strings. Reject markup, objects, fractions and unreasonable episode indexes.
+export function ordinal(value: unknown): number | undefined {
+  if (
+    typeof value !== "number" &&
+    !(typeof value === "string" && /^\d{1,6}$/.test(value))
+  )
+    return undefined;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 && number <= 100000
+    ? number
+    : undefined;
+}
 export const bounded = (n: any) =>
   Number.isFinite(Number(n)) ? Math.max(0, Math.min(31536000, Number(n))) : 0;
 export function empty(): Snapshot {

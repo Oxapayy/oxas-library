@@ -3,17 +3,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import { empty, Snapshot } from "./model";
+export type PreparedScope = { scope: string; state: Snapshot };
 export class Disk {
   key: Buffer;
+  private saveTimer?: ReturnType<typeof setTimeout>;
+  private pendingSave = false;
+  private loaded = false;
+  saveError?: string;
   scope = "guest";
   state: Snapshot = empty();
   constructor(
     public root: string,
     test = false,
+    private storageChanged: () => void = () => {},
   ) {
     fs.mkdirSync(root, { recursive: true, mode: 0o700 });
     const keyFile = path.join(root, "device-key");
-    if (!safeStorage.isEncryptionAvailable() && !test)
+    if (!test && !safeStorage.isEncryptionAvailable())
       throw Error("Secure operating-system credential storage is unavailable.");
     if (fs.existsSync(keyFile))
       this.key = test
@@ -66,20 +72,70 @@ export class Disk {
       ]),
     );
   }
-  switch(scope: string) {
+  flushPending() {
+    if (this.pendingSave) this.save();
+  }
+  prepareSwitch(scope: string): PreparedScope {
     if (!/^(guest|[0-9a-f-]{36})$/i.test(scope))
       throw Error("Invalid account.");
-    this.scope = scope.toLowerCase();
-    this.state = this.read("library-" + this.scope, empty());
-    this.state.journal ??= { cursor: 0, revisions: {}, pending: {} };
-    for (const t of this.state.transfers)
+    // Finish a pending progress checkpoint before leaving its account scope.
+    this.flushPending();
+    const nextScope = scope.toLowerCase();
+    if (this.loaded && nextScope === this.scope)
+      return { scope: nextScope, state: this.state };
+    const nextState = this.read("library-" + nextScope, empty());
+    nextState.journal ??= { cursor: 0, revisions: {}, pending: {} };
+    for (const t of nextState.transfers)
       if (t.state === "downloading" || t.state === "queued") {
         t.state = "failed";
         t.error = "Interrupted. Retry to continue.";
       }
+    return { scope: nextScope, state: nextState };
+  }
+  commitSwitch(next: PreparedScope) {
+    // Account APIs may await network requests between prepare and commit.
+    // Preserve changes made to the outgoing library during that interval.
+    this.flushPending();
+    this.scope = next.scope;
+    this.state = next.state;
+    this.loaded = true;
+  }
+  switch(scope: string) {
+    this.commitSwitch(this.prepareSwitch(scope));
   }
   save() {
-    this.write("library-" + this.scope, this.state);
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
+    this.pendingSave = true;
+    try {
+      this.write("library-" + this.scope, this.state);
+      this.pendingSave = false;
+      if (this.saveError) {
+        this.saveError = undefined;
+        this.storageChanged();
+      }
+    } catch (error) {
+      if (!this.saveError) {
+        this.saveError =
+          "Your latest changes could not be saved. Check free disk space and folder permissions, then retry. Keep the app open until saving succeeds.";
+        this.storageChanged();
+      }
+      throw error;
+    }
+  }
+  // Transfer bytes and playback progress are noisy. Checkpoint at most once a
+  // second; explicit edits, completion, scope changes and quit still save now.
+  saveSoon() {
+    this.pendingSave = true;
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      try {
+        this.save();
+      } catch {
+        /* Keep dirty state for retry; background I/O errors must not crash. */
+      }
+    }, 1000);
+    this.saveTimer.unref();
   }
   get mediaRoot() {
     const p = this.state.preferences.downloadDirectory

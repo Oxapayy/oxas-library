@@ -15,8 +15,9 @@ export class Downloads {
     public provider: (m: Media) => Provider,
     public changed: () => void,
   ) {}
-  persist() {
-    this.disk.save();
+  persist(progress = false) {
+    if (progress && this.disk.saveSoon) this.disk.saveSoon();
+    else this.disk.save();
     this.changed();
   }
   add(items: Media[], choice?: any) {
@@ -191,7 +192,7 @@ export class Downloads {
             t.fraction = total ? n / total : 0;
             if (Date.now() - last > 700 && epoch === this.epoch) {
               last = Date.now();
-              this.persist();
+              this.persist(true);
             }
           };
           const isHLS =
@@ -274,7 +275,7 @@ export class Downloads {
                 });
                 t.bytes += r.data.length;
                 assetCount++;
-                if (assetCount % 4 === 0) this.persist();
+                if (assetCount % 4 === 0) this.persist(true);
               }
               return name;
             };

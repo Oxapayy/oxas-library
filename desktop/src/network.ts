@@ -117,7 +117,9 @@ export type RequestOptions = {
   limit?: number;
   signal?: AbortSignal;
   raw?: boolean;
+  budget?: { remaining: number };
 };
+export class ResponseLimitError extends Error {}
 export async function request(
   raw: string,
   opts: RequestOptions = {},
@@ -221,9 +223,20 @@ export async function bytes(raw: string, opts: RequestOptions = {}) {
     limit = opts.limit ?? 16 * 1024 * 1024;
   for await (const part of r.stream) {
     size += part.length;
+    if (opts.budget) {
+      opts.budget.remaining -= part.length;
+      if (opts.budget.remaining < 0) {
+        r.stream.destroy();
+        throw new ResponseLimitError(
+          "The source exceeds the library response budget. Add a smaller library.",
+        );
+      }
+    }
     if (size > limit) {
       r.stream.destroy();
-      throw Error("The server response exceeds the size limit.");
+      throw new ResponseLimitError(
+        "The server response exceeds the size limit.",
+      );
     }
     chunks.push(part);
   }

@@ -22,30 +22,61 @@ export function sourceIsPublic(source: Source) {
   }
 }
 export class MediaTransport {
+  // Catalog artwork has a different lifetime from a playback session. A large
+  // poster grid must never evict a video's root capability (or earlier posters).
+  private artworkEntries = new Map<string, any>();
+  private childEntries = new Map<string, any>();
   entries = new Map<string, any>();
-  register(url: string, source: Source, headers: any = {}, format?: string) {
-    if (this.entries.size > 20000) this.entries.clear();
+  private remote(url: string, source: Source, headers: any, format?: string) {
+    return { url, source, headers: cleanHeaders(headers, true), format };
+  }
+  private add(entry: any, kind: "root" | "artwork" | "child" = "root") {
+    const entries =
+      kind === "artwork"
+        ? this.artworkEntries
+        : kind === "child"
+          ? this.childEntries
+          : this.entries;
+    if (kind === "child" && entries.size >= 20000)
+      entries.delete(entries.keys().next().value);
+    // Fail closed on pathological catalogs without invalidating live tokens.
+    if (kind === "artwork" && entries.size >= 300000)
+      throw Error("Artwork catalog exceeds its size limit.");
     const token = randomBytes(24).toString("hex");
-    this.entries.set(token, {
-      url,
-      source,
-      headers: cleanHeaders(headers, true),
-      format,
-    });
+    entries.set(token, entry);
     return `oxa://media/${token}`;
   }
-  file(root: string, file: string) {
-    const token = randomBytes(24).toString("hex");
-    this.entries.set(token, { root, file });
-    return `oxa://media/${token}`;
+  register(url: string, source: Source, headers: any = {}, format?: string) {
+    return this.add(this.remote(url, source, headers, format));
+  }
+  artwork(url: string, source: Source, headers: any = {}) {
+    return this.add(this.remote(url, source, headers), "artwork");
+  }
+  file(root: string, file: string, child = false) {
+    return this.add({ root, file }, child ? "child" : "root");
+  }
+  closePlayback() {
+    this.entries.clear();
+    this.childEntries.clear();
+  }
+  forgetArtwork() {
+    this.artworkEntries.clear();
   }
   forget() {
-    this.entries.clear();
+    this.closePlayback();
+    this.forgetArtwork();
   }
   async handle(req: Request) {
     const token = new URL(req.url).pathname.split("/")[1],
-      entry = this.entries.get(token);
+      entry =
+        this.entries.get(token) ||
+        this.artworkEntries.get(token) ||
+        this.childEntries.get(token);
     if (!entry) return new Response("Media session expired.", { status: 404 });
+    if (this.childEntries.has(token)) {
+      this.childEntries.delete(token);
+      this.childEntries.set(token, entry);
+    }
     try {
       if (entry.root) {
         const root = fs.realpathSync(entry.root),
@@ -55,7 +86,7 @@ export class MediaTransport {
         const stat = fs.statSync(file);
         if (file.endsWith(".m3u8")) {
           const raw = fs.readFileSync(file, "utf8");
-          const rewrite = (uri: string) => this.file(root, uri);
+          const rewrite = (uri: string) => this.file(root, uri, true);
           return new Response(this.rewrite(raw, rewrite), {
             headers: { "Content-Type": "application/vnd.apple.mpegurl" },
           });
@@ -130,10 +161,13 @@ export class MediaTransport {
         const rewrite = (raw: string) => {
           const child = new URL(raw, r.url);
           const same = child.origin === new URL(entry.url).origin;
-          return this.register(
-            child.href,
-            entry.source,
-            same ? entry.headers : cleanHeaders(entry.headers, false),
+          return this.add(
+            this.remote(
+              child.href,
+              entry.source,
+              same ? entry.headers : cleanHeaders(entry.headers, false),
+            ),
+            "child",
           );
         };
         return new Response(this.rewrite(text, rewrite), {

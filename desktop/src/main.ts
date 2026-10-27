@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Disk } from "./storage";
+import { libraryView, mergeMedia } from "./library-view";
 import { Provider } from "./providers";
 import { Cloud } from "./cloud";
 import { Downloads } from "./downloads";
@@ -94,7 +95,7 @@ function art(raw: string, sourceID: string) {
   let headers = {};
   try {
     if (new URL(raw).origin === new URL(a.base).origin) headers = a.headers;
-    const url = transport.register(raw, source, headers);
+    const url = transport.artwork(raw, source, headers);
     artwork.set(key, url);
     return url;
   } catch {
@@ -102,39 +103,10 @@ function art(raw: string, sourceID: string) {
   }
 }
 function wire(m: Media) {
-  return {
-    id: wireID(m.id),
-    sourceID: m.sourceID,
-    title: m.title,
-    kind: m.kind,
-    overview: m.overview,
-    year: m.year,
-    duration: m.duration,
-    poster: art(m.poster, m.sourceID),
-    backdrop: art(m.backdrop, m.sourceID),
-    seriesTitle: m.seriesTitle,
-    seriesID: m.seriesID ? wireID(m.sourceID + ":" + m.seriesID) : undefined,
-    season: m.season,
-    episode: m.episode,
-    group: m.group,
-    progress:
-      disk.state.progress[m.id] ||
-      disk.state.progress[
-        disk.state.media.find(
-          (x) => x.id !== m.id && cloudKey(x) === cloudKey(m),
-        )?.id
-      ],
-    favorite: disk.state.favorites.includes(m.id),
-    creditsStart: m.creditsStart,
-    newEpisode:
-      (disk.state.newEpisodeIDs || []).includes(m.id) &&
-      !disk.state.progress[m.id]?.seconds,
-    download: disk.state.transfers.some(
-      (t) => t.media.id === m.id && t.state === "ready",
-    ),
-  };
+  return libraryView(disk.state, art).wire(m);
 }
 function view() {
+  const projection = libraryView(disk.state, art);
   return {
     sources: disk.state.sources.map((s) => ({
       id: s.id,
@@ -148,38 +120,11 @@ function view() {
       refreshing: refreshing.has(s.id),
       error: sourceErrors.get(s.id),
     })),
-    media: disk.state.media
-      .filter(
-        (m) =>
-          !m.id.startsWith("cloud:") ||
-          !disk.state.media.some(
-            (x) => !x.id.startsWith("cloud:") && cloudKey(x) === cloudKey(m),
-          ),
-      )
-      .map(wire),
-    programs: disk.state.programs.map((p) => ({
-      ...p,
-      id: hash(p.id),
-      channelID: undefined,
-      mediaID: disk.state.media.find(
-        (m) => m.sourceID === p.sourceID && m.channelID === p.channelID,
-      )
-        ? wireID(
-            disk.state.media.find(
-              (m) => m.sourceID === p.sourceID && m.channelID === p.channelID,
-            )!.id,
-          )
-        : undefined,
-    })),
-    transfers: disk.state.transfers.map((t) => ({
-      id: t.id,
-      media: wire(t.media),
-      state: t.state,
-      bytes: t.bytes,
-      fraction: t.fraction,
-      error: t.error,
-    })),
+    media: projection.media(),
+    programs: projection.programs(),
+    transfers: projection.transfers(),
     preferences: disk.state.preferences,
+    storageError: disk.saveError,
     hideWelcome: disk.read("ui", {}).hideWelcome || false,
     account: {
       email: cloud?.identity?.email,
@@ -193,9 +138,40 @@ function view() {
     platform: process.platform,
   };
 }
-function changed() {
+type UpdateSection = "all" | "transfers" | "progress";
+let updateTimer: ReturnType<typeof setTimeout> | undefined;
+const pendingUpdates = new Set<UpdateSection>();
+const pendingStatusIDs = new Set<string>();
+function changed(section: UpdateSection = "all", mediaID?: string) {
   if (!win || win.isDestroyed() || !disk) return;
-  win.webContents.send("oxa:update", view());
+  pendingUpdates.add(section);
+  if (mediaID) pendingStatusIDs.add(mediaID);
+  if (!updateTimer)
+    updateTimer = setTimeout(() => {
+      updateTimer = undefined;
+      if (!win || win.isDestroyed()) {
+        pendingUpdates.clear();
+        pendingStatusIDs.clear();
+        return;
+      }
+      let payload: any;
+      if (pendingUpdates.has("all")) payload = view();
+      else {
+        const projection = libraryView(disk.state, art);
+        if (pendingUpdates.has("transfers"))
+          for (const transfer of disk.state.transfers)
+            pendingStatusIDs.add(transfer.media.id);
+        payload = {
+          partial: true,
+          mediaUpdates: projection.status(pendingStatusIDs),
+        };
+        if (pendingUpdates.has("transfers"))
+          payload.transfers = projection.transfers();
+      }
+      pendingUpdates.clear();
+      pendingStatusIDs.clear();
+      win.webContents.send("oxa:update", payload);
+    }, 32);
   for (const id of sourceAttempts)
     if (!disk.state.sources.some((s) => s.id === id)) sourceAttempts.delete(id);
   for (const source of disk.state.sources)
@@ -219,12 +195,7 @@ function scopeGuard(sourceID?: string) {
   };
 }
 function merge(items: Media[]) {
-  for (const m of items) {
-    Object.assign(m, disk.state.metadata?.[m.id] || {});
-    const i = disk.state.media.findIndex((x) => x.id === m.id);
-    if (i < 0) disk.state.media.push(m);
-    else disk.state.media[i] = { ...disk.state.media[i], ...m };
-  }
+  mergeMedia(disk.state, items);
 }
 async function refresh(id: string) {
   if (refreshing.has(id)) return;
@@ -271,11 +242,9 @@ async function refresh(id: string) {
         /* Keep the last successful episode list when a provider is offline. */
       }
     }
+    const resultIDs = new Set(result.items.map((m) => m.id));
     const oldEpisodes = disk.state.media.filter(
-      (m) =>
-        m.sourceID === id &&
-        m.kind === "episode" &&
-        !result.items.some((x) => x.id === m.id),
+      (m) => m.sourceID === id && m.kind === "episode" && !resultIDs.has(m.id),
     );
     disk.state.media = disk.state.media.filter((m) => m.sourceID !== id);
     merge([...result.items, ...oldEpisodes]);
@@ -392,7 +361,7 @@ async function detail(id: string) {
   disk.save();
   return {
     media: wire(m),
-    episodes: ordered(episodes).map(wire),
+    episodes: ordered(episodes).map(libraryView(disk.state, art).wire),
     seasons: m.websiteItem?.seasons || [],
   };
 }
@@ -406,6 +375,7 @@ async function playback(id: string, choiceID?: string, transferID?: string) {
         (t) => cloudKey(t.media) === cloudKey(m) && t.state === "ready",
       );
   if (t) {
+    transport.closePlayback();
     const root = path.join(disk.mediaRoot, hash(t.id));
     active = { media: m, choice: undefined };
     return {
@@ -473,6 +443,7 @@ async function playback(id: string, choiceID?: string, transferID?: string) {
   guard();
   active = { media: play.media, choice: play.choice };
   merge([play.media]);
+  transport.closePlayback();
   let caption;
   try {
     if (
@@ -506,6 +477,7 @@ async function playback(id: string, choiceID?: string, transferID?: string) {
 }
 const actions = new Set([
   "state",
+  "storage.retry",
   "source.add",
   "source.edit",
   "source.remove",
@@ -550,6 +522,10 @@ async function execute(action: string, args: any = {}) {
     throw Error("Invalid application request.");
   switch (action) {
     case "state":
+      return view();
+    case "storage.retry":
+      disk.save();
+      changed();
       return view();
     case "licenses":
       return fs.readFileSync(
@@ -651,6 +627,7 @@ async function execute(action: string, args: any = {}) {
         delete disk.state.credentials[s.id];
         disk.save();
         artwork.clear();
+        transport.forgetArtwork();
         changed();
       }
       return view();
@@ -669,7 +646,7 @@ async function execute(action: string, args: any = {}) {
       merge(rows);
       disk.save();
       changed();
-      return rows.map(wire);
+      return rows.map(libraryView(disk.state, art).wire);
     }
     case "more": {
       const guard = scopeGuard();
@@ -702,7 +679,7 @@ async function execute(action: string, args: any = {}) {
       merge(rows);
       disk.save();
       changed();
-      return rows.map(wire);
+      return rows.map(libraryView(disk.state, art).wire);
     }
     case "play":
       return playback(args.id, args.choiceID, args.transferID);
@@ -782,11 +759,11 @@ async function execute(action: string, args: any = {}) {
           (duration > 0 && seconds >= duration - Math.min(30, duration * 0.03)),
         playedAt: appleNow(),
       };
-      disk.save();
+      disk.saveSoon();
       cloud.progress(m);
       if (Date.now() - lastUpdate > 2500) {
         lastUpdate = Date.now();
-        changed();
+        changed("progress", m.id);
       }
       return true;
     }
@@ -933,6 +910,7 @@ async function execute(action: string, args: any = {}) {
       return win.isFullScreen();
     case "closePlayer":
       active = null;
+      transport.closePlayback();
       return true;
   }
 }
@@ -981,7 +959,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   try {
     nativeTheme.themeSource = "dark";
-    disk = new Disk(app.getPath("userData"), testMode);
+    disk = new Disk(app.getPath("userData"), testMode, () => changed());
     cloud = new Cloud(
       disk,
       () => {
@@ -997,7 +975,11 @@ app.whenReady().then(async () => {
       },
       changed,
     );
-    downloads = new Downloads(disk, (m) => api(m), changed);
+    downloads = new Downloads(
+      disk,
+      (m) => api(m),
+      () => changed("transfers"),
+    );
     const ses = session.defaultSession;
     ses.setPermissionRequestHandler((_w, permission, cb) =>
       cb(permission === "fullscreen"),
@@ -1137,9 +1119,15 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
   downloads?.suspend();
   try {
     disk?.save();
-  } catch {}
+  } catch {
+    event.preventDefault();
+    dialog.showErrorBox(
+      "Could not save your library",
+      "Check free disk space and folder permissions, then quit again. The app remains open so your latest changes can be saved.",
+    );
+  }
 });

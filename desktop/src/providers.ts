@@ -6,9 +6,26 @@ import {
   media,
   ordered,
   bounded,
+  ordinal,
   appleDate,
 } from "./model";
-import { bytes, json, request, urlCheck, local, cleanHeaders } from "./network";
+import {
+  bytes,
+  json,
+  request,
+  urlCheck,
+  local,
+  cleanHeaders,
+  ResponseLimitError,
+} from "./network";
+export const MAX_CATALOG_ITEMS = 100000;
+const MAX_GUIDE_ROWS = 200000;
+const checkCatalogSize = (count: number, max = MAX_CATALOG_ITEMS) => {
+  if (count > max)
+    throw new ResponseLimitError(
+      "The source catalog exceeds the library size limit. Add a smaller library.",
+    );
+};
 const array = (v: any) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 export const xml = (text: string) =>
   new XMLParser({
@@ -27,18 +44,35 @@ const root = (raw: string) => {
   if (!u.pathname.endsWith("/")) u.pathname += "/";
   return u.href;
 };
-const matches = (raw: string, pattern: string) =>
-  raw.length <= 8192 &&
-  pattern.length <= 1024 &&
-  new RegExp(
-    "^" +
-      pattern
-        .split("*")
-        .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-        .join(".*") +
-      "$",
-    "i",
-  ).test(raw);
+// A provider pattern is a literal URL glob, not a regular expression. Turning
+// every '*' into '.*' permits exponential backtracking on a nonmatching URL.
+// Match fixed segments in order, reserving an anchored suffix before scanning.
+export function matches(raw: string, pattern: string) {
+  if (
+    typeof raw !== "string" ||
+    typeof pattern !== "string" ||
+    raw.length > 8192 ||
+    pattern.length > 1024
+  )
+    return false;
+  const url = raw.toLowerCase(),
+    pieces = pattern.toLowerCase().split("*");
+  if (pieces.length === 1) return url === pieces[0];
+  const prefix = pieces[0],
+    suffix = pieces[pieces.length - 1];
+  if (!url.startsWith(prefix) || !url.endsWith(suffix)) return false;
+  let cursor = prefix.length;
+  const end = url.length - suffix.length;
+  if (cursor > end) return false;
+  for (let i = 1; i < pieces.length - 1; i++) {
+    const part = pieces[i];
+    if (!part) continue;
+    const found = url.indexOf(part, cursor);
+    if (found < 0 || found + part.length > end) return false;
+    cursor = found + part.length;
+  }
+  return true;
+}
 export function m3u(input: string, s: Source, base: string) {
   if (!input.trimStart().startsWith("#EXTM3U"))
     throw Error("This is not an extended M3U playlist.");
@@ -91,6 +125,7 @@ export function guide(input: string, s: Source) {
     .filter((p: any) => p.title && Number.isFinite(p.start) && p.end > p.start);
 }
 export class Provider {
+  private metadataBudget = { remaining: 64 * 1024 * 1024 };
   base: string;
   headers: any;
   constructor(
@@ -119,6 +154,9 @@ export class Provider {
       source: this.source,
       publicOnly: !local(new URL(this.base).hostname),
       headers: this.headers,
+      ...(extra.media
+        ? {}
+        : { budget: this.metadataBudget, limit: 8 * 1024 * 1024 }),
       ...extra,
     };
   }
@@ -185,8 +223,8 @@ export class Provider {
       duration: bounded((row.RunTimeTicks || 0) / 1e7),
       seriesID: row.SeriesId,
       seriesTitle: row.SeriesName,
-      season: row.ParentIndexNumber,
-      episode: row.IndexNumber,
+      season: ordinal(row.ParentIndexNumber),
+      episode: ordinal(row.IndexNumber),
     });
     m.poster = this.url(`Items/${row.Id}/Images/Primary`, {
       maxWidth: 600,
@@ -215,8 +253,8 @@ export class Provider {
       duration: bounded((row.duration || 0) / 1000),
       seriesID: row.grandparentRatingKey,
       seriesTitle: row.grandparentTitle,
-      season: row.parentIndex,
-      episode: row.index,
+      season: ordinal(row.parentIndex),
+      episode: ordinal(row.index),
     });
     if (row.thumb) m.poster = this.url(row.thumb);
     if (row.art) m.backdrop = this.url(row.art);
@@ -257,6 +295,7 @@ export class Provider {
           Limit: 200,
         });
         const rows = data.Items || [];
+        checkCatalogSize(items.length + rows.length);
         items.push(...rows.map((r: any) => this.jelly(r)));
         start += rows.length;
         if (!rows.length || start >= (data.TotalRecordCount ?? start)) break;
@@ -270,6 +309,7 @@ export class Provider {
             "X-Plex-Container-Size": 200,
           });
           const rows = d.MediaContainer?.Metadata || [];
+          checkCatalogSize(items.length + rows.length);
           items.push(...rows.map((r: any) => this.plex(r)));
           start += rows.length;
           if (!rows.length || start >= (d.MediaContainer?.totalSize ?? start))
@@ -286,11 +326,17 @@ export class Provider {
               { sourceID: this.source.id, addonID: addon.id, catalog },
               c,
             );
+            checkCatalogSize(items.length + page.items.length);
+            checkCatalogSize(
+              programs.length + page.programs.length,
+              MAX_GUIDE_ROWS,
+            );
             items.push(...page.items);
             programs.push(...page.programs);
             pages.push(page.page);
             success++;
-          } catch {
+          } catch (error) {
+            if (error instanceof ResponseLimitError) throw error;
             warning =
               "Some provider catalogs could not load. Refresh to retry.";
           }
@@ -340,7 +386,8 @@ export class Provider {
             ).data.toString(),
             this.source,
           );
-        } catch {
+        } catch (error) {
+          if (error instanceof ResponseLimitError) throw error;
           warning =
             "Channels loaded; the program guide could not be refreshed.";
         }
@@ -359,6 +406,7 @@ export class Provider {
       ]) {
         const rows = await this.j("player_api.php", { ...q, action });
         if (!Array.isArray(rows)) throw Error("Invalid IPTV catalog.");
+        checkCatalogSize(items.length + rows.length);
         items.push(...rows.map((r) => this.xtream(r, k)));
       }
       try {
@@ -371,7 +419,8 @@ export class Provider {
           ).data.toString(),
           this.source,
         );
-      } catch {
+      } catch (error) {
+        if (error instanceof ResponseLimitError) throw error;
         warning = "Channels loaded; program guide unavailable.";
       }
     } else if (kind === "NAS / WebDAV") {
@@ -414,10 +463,13 @@ export class Provider {
             );
             m.stream = href.href;
             items.push(m);
+            checkCatalogSize(items.length);
           }
         }
       }
     }
+    checkCatalogSize(items.length);
+    checkCatalogSize(programs.length, MAX_GUIDE_ROWS);
     return { items, programs, pages, warning };
   }
   resource(base: string, segments: string[], query: any = {}) {
@@ -558,8 +610,8 @@ export class Provider {
       poster: img.poster || img.thumbnail || img.logo,
       backdrop: img.backdrops?.[0],
       group: r.tags?.[0],
-      season: r.season ?? season,
-      episode: r.episode,
+      season: ordinal(r.season) ?? ordinal(season),
+      episode: ordinal(r.episode),
     });
     if (m.poster) m.poster = new URL(m.poster, a.baseURL).href;
     if (m.backdrop) m.backdrop = new URL(m.backdrop, a.baseURL).href;
@@ -611,6 +663,7 @@ export class Provider {
       ),
     );
     if (!Array.isArray(d.items)) throw Error("Invalid website catalog.");
+    checkCatalogSize(d.items.length);
     return {
       items: d.items.map((r: any) => this.mhItem(r, a)).filter(Boolean),
       programs: d.items.flatMap((r: any) => {
@@ -647,7 +700,10 @@ export class Provider {
             out.push(
               ...(await this.page({ addonID: a.id, catalog }, c, q)).items,
             );
-          } catch {}
+            checkCatalogSize(out.length);
+          } catch (error) {
+            if (error instanceof ResponseLimitError) throw error;
+          }
     return out;
   }
   async detail(m: Media) {
@@ -666,20 +722,20 @@ export class Provider {
         kind: m.kind,
         seriesID: m.seriesID,
         seriesTitle: m.seriesTitle,
-        season: m.season,
-        episode: m.episode,
+        season: ordinal(m.season),
+        episode: ordinal(m.episode),
       });
       d.websiteItem.sources = [...r.sources, ...d.websiteItem.sources].filter(
         (x: any, i: number, all: any[]) =>
           all.findIndex((y) => y.url === x.url) === i,
       );
       d.websiteItem.seasons = (body.catalogs || [])
-        .filter((x: any) => x.season != null)
+        .filter((x: any) => ordinal(x.season) != null)
         .map((x: any) => ({
           id: x.id,
           name: x.name || `Season ${x.season}`,
           type: x.type || "video",
-          number: x.season,
+          number: ordinal(x.season),
         }));
       return {
         media: d,
@@ -719,6 +775,7 @@ export class Provider {
               .map((x: any) => this.mhItem(x, a, d, s.number))
               .filter(Boolean),
           );
+          checkCatalogSize(out.length);
           cursor = body.nextCursor;
           if (!cursor) break;
           if (seen.has(cursor)) throw Error("Repeated episode page.");
@@ -743,8 +800,8 @@ export class Provider {
               seriesID: m.providerID,
               seriesTitle: m.title,
               poster: m.poster,
-              season: Number(s),
-              episode: Number(r.episode_num),
+              season: ordinal(s),
+              episode: ordinal(r.episode_num),
               overview: r.info?.plot || "",
               duration: bounded(r.info?.duration_secs),
               stream: this.url(

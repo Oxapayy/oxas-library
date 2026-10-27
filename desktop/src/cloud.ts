@@ -32,6 +32,8 @@ export class Cloud {
   lastSync: number;
   recovery = false;
   authEpoch = 0;
+  private transitioning = false;
+  private transitionFailed = false;
   constructor(
     public disk: Disk,
     public switched: () => void,
@@ -80,8 +82,19 @@ export class Cloud {
       },
     );
   }
+  private get matchingScope() {
+    return (
+      typeof this.identity?.id === "string" &&
+      this.identity.id.toLowerCase() === this.disk.scope.toLowerCase()
+    );
+  }
   get ready() {
-    return !!this.identity && !!this.settings;
+    return (
+      this.matchingScope &&
+      !!this.settings &&
+      !this.transitioning &&
+      !this.transitionFailed
+    );
   }
   async boot() {
     if (!CLOUD_CONFIGURED) {
@@ -90,25 +103,35 @@ export class Cloud {
       this.changed();
       return;
     }
-    const cached = this.disk.read("account", null);
-    if (cached?.identity) {
-      this.identity = cached.identity;
-      this.settings = cached.settings;
-      if (cached.key) this.key = Buffer.from(cached.key, "base64");
-      this.disk.switch(this.identity.id);
-      this.switched();
-    }
+    this.transitioning = true;
+    const epoch = ++this.epoch;
     try {
+      const cached = this.disk.read("account", null);
+      if (cached?.identity) {
+        const staged = this.disk.prepareSwitch(cached.identity.id);
+        this.disk.commitSwitch(staged);
+        this.identity = cached.identity;
+        this.settings = cached.settings;
+        this.key = cached.key ? Buffer.from(cached.key, "base64") : undefined;
+        this.switched();
+      }
       const { data, error } = await this.client.auth.getUser();
-      if (error || !data.user) return;
+      if (epoch !== this.epoch) return;
+      if (error || !data.user) {
+        this.message =
+          "Account is offline. Your saved library remains available.";
+        return;
+      }
       if (this.identity?.id !== data.user.id) {
+        const staged = this.disk.prepareSwitch(data.user.id);
+        this.disk.commitSwitch(staged);
+        this.identity = { id: data.user.id, email: data.user.email };
         this.key = undefined;
         this.settings = undefined;
-        this.identity = { id: data.user.id, email: data.user.email };
-        this.disk.switch(data.user.id);
         this.switched();
       }
       const settings = await this.fetchSettings();
+      if (epoch !== this.epoch) return;
       if (
         this.settings &&
         settings?.generation.toUpperCase() !==
@@ -117,15 +140,23 @@ export class Cloud {
         this.key = undefined;
       this.settings = settings;
       this.cache();
-      if (this.settings) {
-        await this.migrateLocalSources();
-        void this.sync();
-      }
+      this.transitionFailed = false;
     } catch {
-      this.message =
-        "Account is offline. Your saved library remains available.";
+      if (epoch === this.epoch) {
+        this.transitionFailed = true;
+        this.message =
+          "Account could not be restored. Your saved library is kept. Retry signing in after checking local storage.";
+      }
+    } finally {
+      if (epoch === this.epoch) {
+        this.transitioning = false;
+        this.changed();
+      }
     }
-    this.changed();
+    if (epoch === this.epoch && this.ready) {
+      await this.migrateLocalSources();
+      void this.sync();
+    }
   }
   cache() {
     this.disk.write(
@@ -139,11 +170,11 @@ export class Cloud {
         : null,
     );
   }
-  async fetchSettings() {
+  async fetchSettings(userID = this.identity?.id) {
     const { data, error } = await this.client
       .from("vault_settings")
       .select("*")
-      .eq("user_id", this.identity.id)
+      .eq("user_id", userID)
       .maybeSingle();
     if (error) throw Error("Could not load encrypted account settings.");
     return data;
@@ -157,6 +188,8 @@ export class Cloud {
       password = String(args.password || "");
     if (email.length > 254 || password.length > 1024)
       throw Error("Invalid account details.");
+    if (["signin", "verify", "reset"].includes(action))
+      this.disk.flushPending();
     if (action === "signup") {
       if (password.length < 10) throw Error("Use at least 10 characters.");
       const { error } = await this.client.auth.signUp({ email, password });
@@ -266,70 +299,103 @@ export class Cloud {
   }
   async attach(user: any, password: string, includeGuest = false) {
     if (!user) throw Error("Sign-in did not return an account.");
-    const guest =
-      this.disk.scope === "guest" ? structuredClone(this.disk.state) : null;
-    this.epoch++;
-    this.key = undefined;
-    this.identity = { id: user.id, email: user.email };
-    this.switched();
-    this.disk.switch(user.id);
-    // Legacy password-wrapped data is read only for a one-time migration.
-    // Never reset the vault or delete records during account recovery.
-    this.disk.write("pending-recovery", null);
-    this.disk.write("pending-wrap", null);
-    this.settings = await this.fetchSettings();
-    if (!this.settings) {
-      const fresh = await createVault(user.id, uuid());
-      const { error } = await this.client
-        .from("vault_settings")
-        .insert(fresh.settings);
-      if (error) {
-        this.settings = await this.fetchSettings();
-        if (!this.settings) throw Error("Could not initialize account sync.");
-      } else this.settings = fresh.settings;
-    }
-    const cached = this.disk.read("account", null);
-    if (
-      cached?.identity?.id === user.id &&
-      cached?.settings?.generation === this.settings.generation &&
-      cached.key
-    )
-      this.key = Buffer.from(cached.key, "base64");
-    if (!this.key)
-      try {
-        this.key = await unlockVault(this.settings, password);
-      } catch {
-        /* Old encrypted records remain intact. */
+    const epoch = ++this.epoch;
+    this.transitioning = true;
+    try {
+      // A corrupt target vault or an unsaved outgoing library must not change
+      // identity, keys, capabilities or account ownership.
+      const staged = this.disk.prepareSwitch(user.id);
+      const guest =
+        this.disk.scope === "guest" ? structuredClone(this.disk.state) : null;
+      const identity = { id: user.id, email: user.email };
+      let settings = await this.fetchSettings(user.id);
+      if (epoch !== this.epoch)
+        throw Error("The account changed. Sign in again.");
+      if (!settings) {
+        const fresh = await createVault(user.id, uuid());
+        const { error } = await this.client
+          .from("vault_settings")
+          .insert(fresh.settings);
+        if (epoch !== this.epoch)
+          throw Error("The account changed. Sign in again.");
+        if (error) {
+          settings = await this.fetchSettings(user.id);
+          if (!settings) throw Error("Could not initialize account sync.");
+        } else settings = fresh.settings;
       }
-    await this.migrateLocalSources();
-    this.cache();
-    await this.sync();
-    if (includeGuest && guest) {
-      for (const s of guest.sources)
-        if (!this.disk.state.sources.some((x) => x.id === s.id)) {
-          this.disk.state.sources.push(s);
-          this.disk.state.credentials[s.id] = guest.credentials[s.id];
-          this.source(s);
-        }
-      for (const m of guest.media) {
-        if (!this.disk.state.media.some((x) => x.id === m.id))
-          this.disk.state.media.push(m);
-        if (guest.progress[m.id]) {
-          this.disk.state.progress[m.id] = guest.progress[m.id];
-          this.progress(m);
-        }
-        if (guest.favorites.includes(m.id)) {
-          if (!this.disk.state.favorites.includes(m.id))
-            this.disk.state.favorites.push(m.id);
-          this.watchlist(m, true);
+      const cached = this.disk.read("account", null);
+      let key: Buffer;
+      if (
+        cached?.identity?.id === user.id &&
+        cached?.settings?.generation === settings.generation &&
+        cached.key
+      )
+        key = Buffer.from(cached.key, "base64");
+      if (!key) {
+        try {
+          key = await unlockVault(settings, password);
+        } catch {
+          /* Old encrypted records remain intact. */
         }
       }
-      this.disk.save();
+      if (epoch !== this.epoch)
+        throw Error("The account changed. Sign in again.");
+      this.disk.flushPending();
+      // Finish all fallible I/O before committing the in-memory identity/scope.
+      this.disk.write("pending-recovery", null);
+      this.disk.write("pending-wrap", null);
+      this.disk.write("account", {
+        identity,
+        settings,
+        key: key?.toString("base64"),
+      });
+      this.disk.commitSwitch(staged);
+      this.identity = identity;
+      this.settings = settings;
+      this.key = key;
+      this.transitionFailed = false;
+      this.transitioning = false;
+      this.switched();
+      await this.migrateLocalSources();
       await this.sync();
+      if (epoch !== this.epoch) return { message: "Account changed." };
+      if (includeGuest && guest) {
+        for (const source of guest.sources)
+          if (!this.disk.state.sources.some((x) => x.id === source.id)) {
+            this.disk.state.sources.push(source);
+            this.disk.state.credentials[source.id] =
+              guest.credentials[source.id];
+            this.source(source);
+          }
+        for (const m of guest.media) {
+          if (!this.disk.state.media.some((x) => x.id === m.id))
+            this.disk.state.media.push(m);
+          if (guest.progress[m.id]) {
+            this.disk.state.progress[m.id] = guest.progress[m.id];
+            this.progress(m);
+          }
+          if (guest.favorites.includes(m.id)) {
+            if (!this.disk.state.favorites.includes(m.id))
+              this.disk.state.favorites.push(m.id);
+            this.watchlist(m, true);
+          }
+        }
+        this.disk.save();
+        await this.sync();
+      }
+      this.changed();
+      return { message: "Signed in. Your library is available." };
+    } catch (error) {
+      if (epoch === this.epoch) {
+        this.transitionFailed = true;
+        this.message =
+          "Sign-in could not complete. Your saved library is kept and sync is paused. Check local storage and sign in again.";
+        this.changed();
+      }
+      throw error;
+    } finally {
+      if (epoch === this.epoch) this.transitioning = false;
     }
-    this.switched();
-    this.changed();
-    return { message: "Signed in. Your library is available." };
   }
   async migrateLocalSources() {
     if (!this.ready || this.disk.state.accountFormat === 2) return;
@@ -339,24 +405,44 @@ export class Cloud {
     this.disk.save();
   }
   async signout() {
-    this.epoch++;
+    // Preflight disk errors before revoking auth or clearing current identity.
+    const staged = this.disk.prepareSwitch("guest");
+    const epoch = ++this.epoch;
+    this.transitioning = true;
     clearTimeout(this.timer);
     try {
-      await this.client.auth.signOut({ scope: "local" });
-    } catch {
-      /* Local sign-out succeeds even while offline. */
-    } finally {
+      try {
+        await this.client.auth.signOut({ scope: "local" });
+      } catch {
+        /* Local sign-out also works while offline. */
+      }
+      if (epoch !== this.epoch)
+        throw Error("The account changed. Retry signing out.");
+      this.disk.flushPending();
       this.client.auth.stopAutoRefresh?.();
       this.authEpoch++;
       this.disk.write("auth", {});
-      this.client = this.newClient();
+      this.disk.write("account", null);
+      const nextClient = this.newClient();
+      this.disk.commitSwitch(staged);
+      this.client = nextClient;
       this.identity = undefined;
       this.key = undefined;
       this.settings = undefined;
-      this.cache();
+      this.transitionFailed = false;
+      this.transitioning = false;
       this.switched();
-      this.disk.switch("guest");
       this.changed();
+    } catch (error) {
+      if (epoch === this.epoch) {
+        this.transitionFailed = true;
+        this.message =
+          "Sign-out could not complete. Your saved library is kept. Check local storage and retry.";
+        this.changed();
+      }
+      throw error;
+    } finally {
+      if (epoch === this.epoch) this.transitioning = false;
     }
   }
   async deleteAccount(password: string) {
@@ -367,6 +453,7 @@ export class Cloud {
     });
     if (error) throw Error("Re-enter your current password.");
     const result = await this.client.functions.invoke("delete-account", {
+      method: "DELETE",
       body: {},
     });
     if (result.error) throw Error("Account deletion failed. Please retry.");
@@ -394,7 +481,8 @@ export class Cloud {
       base_revision: j.revisions[id] || 0,
       mutationID: uuid(),
     };
-    this.disk.save();
+    if (kind === "progress" && this.disk.saveSoon) this.disk.saveSoon();
+    else this.disk.save();
     clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.sync(), 750);
   }
@@ -547,7 +635,8 @@ export class Cloud {
             after_revision: cursor,
             expected_generation: this.settings.generation,
           });
-          if (epoch !== this.epoch || scope !== this.disk.scope) return;
+          if (epoch !== this.epoch || scope !== this.disk.scope || !this.ready)
+            return;
           if (error) throw error;
           if (
             data.generation.toUpperCase() !==
