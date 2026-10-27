@@ -2,13 +2,13 @@
 
 An open-source, English-only iOS, macOS and Windows app for your personal films, series and live TV. Connect sources you are authorized to use, resume episodes and save supported media offline.
 
-[Download for iOS](https://github.com/Oxapayy/oxas-library/releases/tag/v1.3.0) · [Website](https://oxapay.cc) · [Report an issue](https://github.com/Oxapayy/oxas-library/issues)
+[Download for iOS](https://github.com/Oxapayy/oxas-library/releases/tag/v1.3.1) · [Website](https://oxapay.cc) · [Report an issue](https://github.com/Oxapayy/oxas-library/issues)
 
 ## iOS release
 
-The release asset is **Oxas-Library-v1.3.0-iOS-unsigned.ipa**. It requires iOS 18 or later. Import it into ESign or another sideloading tool, sign using your own valid certificate and provisioning profile, then install. No certificate/profile is supplied. Use the same bundle identifier and signing identity when updating to retain local data and Keychain access.
+The release asset is **Oxas-Library-v1.3.1-iOS-unsigned.ipa**. It requires iOS 18 or later. Import it into ESign or another sideloading tool, sign using your own valid certificate and provisioning profile, then install. No certificate/profile is supplied. Use the same bundle identifier and signing identity when updating to retain local data and Keychain access.
 
-The shared macOS and Windows client source is in `desktop/`. Download macOS packages for Apple Silicon or Intel and the Windows 10/11 x64 + ARM64 installer from [Desktop 1.0.0](https://github.com/Oxapayy/oxas-library/releases/tag/desktop-v1.0.0). The Windows installer selects the architecture automatically. These initial releases have no publisher certificate; macOS packages use ad hoc signing and are not notarized.
+The shared macOS and Windows client source is in `desktop/`. Download macOS packages for Apple Silicon or Intel and the Windows 10/11 x64 + ARM64 installer from [Desktop 1.0.1](https://github.com/Oxapayy/oxas-library/releases/tag/desktop-v1.0.1). The Windows installer selects the architecture automatically. These releases have no publisher certificate; macOS packages use ad hoc signing and are not notarized.
 
 ## What it does
 
@@ -40,6 +40,8 @@ HTTPS is required for public server/API connections. Trusted local HTTP can be e
 Local snapshots and journals use AES-GCM with a device-only Keychain key. Provider credentials are namespaced per account. Account sync transfers source credentials over HTTPS and restricts database access to the signed-in owner with RLS. Server credentials are no longer end-to-end encrypted or tied to the account password. Local device encryption remains enabled. Viewing metadata uses opaque cloud identifiers and omits playback URLs/headers/local paths.
 
 Password changes and recovery preserve sources, watchlist and history. Updating an existing device migrates its readable legacy connections automatically. Older encrypted connections that are absent locally cannot be recovered without their original password/key; their records are preserved, never reset automatically. Account sync does not make a home server reachable remotely. Offline edits use a durable outbox and per-record server revisions. Downloads are never uploaded. No analytics SDK is included.
+
+See [library responsiveness and regression coverage](docs/PERFORMANCE.md) for the performance changes and stress fixtures.
 
 ## Build and test
 
