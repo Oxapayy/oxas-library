@@ -1,11 +1,20 @@
 """Provider contract fixtures for local tests, not a substitute for live-server validation."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 from urllib.parse import urlparse, parse_qs, unquote
 import json
 import os
 PORT = int(os.environ.get("OXA_FIXTURE_PORT", "8789"))
 ORIGIN = f"http://127.0.0.1:{PORT}"
 from pathlib import Path
+
+class FixtureHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer normally performs a reverse DNS lookup here. This fixture
+        # only accepts numeric loopback connections and does not need DNS.
+        TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
@@ -89,6 +98,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/redirect":
             self.send_response(302); self.send_header("Location", f"http://localhost:{PORT}/target"); self.end_headers(); return
         if path == "/invalid": self.send(b"<html>Login</html>", mime="text/html"); return
+        if path == "/repeated-jellyfin/Users/user-1/Items":
+            self.send({"Items":[{"Id":"same","Name":"Repeated page","Type":"Movie"}],"TotalRecordCount":2147483647}); return
+        if path == "/repeated-plex/library/all":
+            self.send({"MediaContainer":{"Metadata":[{"ratingKey":"same","title":"Repeated page","type":"movie"}],"totalSize":2147483647}}); return
         if path.endswith("/Users/user-1/Items"):
             index = int(query.get("StartIndex", ["0"])[0])
             item = {"Id":"movie-1","Name":"Fixture Movie","Type":"Movie","RunTimeTicks":240000000,"ProductionYear":2026,"Overview":"A deterministic test title","ImageTags":{"Primary":"image"}}
@@ -119,4 +132,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         body = b'<d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response><d:response><d:href>/dav/film.mp4</d:href><d:propstat><d:prop><d:displayname>NAS Film</d:displayname></d:prop></d:propstat></d:response></d:multistatus>'
         self.send(body,207,"application/xml")
-ThreadingHTTPServer(("127.0.0.1",PORT),Handler).serve_forever()
+if __name__ == "__main__":
+    with FixtureHTTPServer(("127.0.0.1", PORT), Handler) as server:
+        # Port 0 lets the OS choose a free port without a bind/close/rebind race.
+        PORT = server.server_port
+        ORIGIN = f"http://127.0.0.1:{PORT}"
+        print(json.dumps({"fixtureReady": True, "port": PORT}), flush=True)
+        server.serve_forever()

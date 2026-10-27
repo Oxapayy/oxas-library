@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { once } from "node:events";
+import { createClient } from "@supabase/supabase-js";
 import { createVault, unlockVault, seal, open } from "../src/crypto";
 import {
   publicIP,
@@ -512,6 +513,18 @@ function fakeCloud() {
   c.settings = { generation: "B1B2C3D4-1111-4222-8333-ABCDEF123456" };
   return { c, disk, vault };
 }
+const syncSession = (id = owner) => ({
+  data: { session: { user: { id }, access_token: "fixture-sync-token" } },
+  error: null,
+});
+const syncRPC =
+  (handler: (name: string, args: any) => any) => (name: string, args: any) => ({
+    setHeader(header: string, value: string) {
+      assert.equal(header, "Authorization");
+      assert.equal(value, "Bearer fixture-sync-token");
+      return handler(name, args);
+    },
+  });
 test("offline sign-out clears persisted sessions and rejects late writes from the old client", async () => {
   const { c, disk, vault } = fakeCloud(),
     oldStorage = c.client.auth.storage;
@@ -559,13 +572,14 @@ test("vault reset drops stale encrypted source edits before syncing the new gene
     mutationID: "old",
   };
   c.client = {
-    rpc: async (_name: string, args: any) => {
+    auth: { getSession: async () => syncSession() },
+    rpc: syncRPC(async (_name: string, args: any) => {
       assert.equal(args.after_revision, 0);
       assert.equal(args.changes.length, 0);
       return {
         data: { generation: c.settings.generation, conflicts: [], records: [] },
       };
-    },
+    }),
   };
   await c.sync();
   assert.deepEqual(disk.state.journal.pending, {});
@@ -604,7 +618,8 @@ test("sync preserves a newer edit made during a request and advances revisions",
   };
   let count = 0;
   c.client = {
-    rpc: async (_name: string, params: any) => {
+    auth: { getSession: async () => syncSession() },
+    rpc: syncRPC(async (_name: string, params: any) => {
       count++;
       if (count === 1) {
         disk.state.progress[m.id].seconds = 25;
@@ -637,7 +652,7 @@ test("sync preserves a newer edit made during a request and advances revisions",
           ],
         },
       };
-    },
+    }),
   };
   await c.sync();
   assert.equal(count, 2);
@@ -648,7 +663,8 @@ test("sync preserves a newer edit made during a request and advances revisions",
 test("stale account request cannot apply records to another account", async () => {
   const { c, disk } = fakeCloud();
   c.client = {
-    rpc: async () => {
+    auth: { getSession: async () => syncSession() },
+    rpc: syncRPC(async () => {
       c.epoch++;
       disk.scope = "22222222-1111-4222-8333-abcdef123456";
       disk.state = empty();
@@ -666,11 +682,144 @@ test("stale account request cannot apply records to another account", async () =
           ],
         },
       };
-    },
+    }),
   };
   await c.sync();
   assert.equal(disk.state.sources.length, 0);
   assert.equal(disk.state.journal.cursor, 0);
+});
+test("sync refuses an SDK session belonging to another account before sending changes", async () => {
+  const { c, disk } = fakeCloud();
+  const pending = {
+    kind: "preferences",
+    key: "playback",
+    payload: { value: "private queued account change" },
+    mutationID: "queued",
+  };
+  disk.state.journal.pending["preferences:playback"] = pending;
+  let sessionReads = 0,
+    requests = 0;
+  c.client = {
+    auth: {
+      getSession: async () => {
+        sessionReads++;
+        return syncSession("22222222-1111-4222-8333-abcdef123456");
+      },
+    },
+    rpc: () => {
+      requests++;
+      throw Error("A mismatched SDK session must never reach RPC construction");
+    },
+  };
+  await c.sync();
+  assert.equal(sessionReads, 1);
+  assert.equal(requests, 0);
+  assert.equal(disk.state.journal.pending["preferences:playback"], pending);
+  assert.equal(disk.state.journal.cursor, 0);
+  assert.equal(c.lastSync, undefined);
+});
+test("sync rechecks epoch and account scope after awaiting the SDK session", async () => {
+  for (const change of ["epoch", "scope"]) {
+    const { c, disk } = fakeCloud();
+    let resolveSession: (value: ReturnType<typeof syncSession>) => void,
+      sessionStarted: () => void,
+      requests = 0;
+    const started = new Promise<void>((resolve) => (sessionStarted = resolve));
+    const session = new Promise<ReturnType<typeof syncSession>>(
+      (resolve) => (resolveSession = resolve),
+    );
+    c.client = {
+      auth: {
+        getSession: () => {
+          sessionStarted();
+          return session;
+        },
+      },
+      rpc: () => {
+        requests++;
+        throw Error("An obsolete account must not construct an RPC");
+      },
+    };
+    const syncing = c.sync();
+    await started;
+    if (change === "epoch") c.epoch++;
+    else disk.scope = "22222222-1111-4222-8333-abcdef123456";
+    resolveSession(syncSession());
+    await syncing;
+    assert.equal(requests, 0, `${change} changed during session lookup`);
+    assert.equal(disk.state.journal.cursor, 0);
+    assert.equal(c.lastSync, undefined);
+  }
+});
+test("real Supabase RPC keeps the checked bearer when the SDK session changes before fetch", async () => {
+  const { c, disk } = fakeCloud();
+  const checkedToken = "checked-account-a-token",
+    replacementToken = "newly-signed-in-account-b-token";
+  const tokensRead: string[] = [],
+    requests: { authorization: string; changes: any[] }[] = [];
+  const client = createClient(
+    "https://sdk-fixture.invalid",
+    "fixture-public-key",
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+      global: {
+        fetch: async (input, init) => {
+          assert.equal(
+            new URL(String(input)).pathname,
+            "/rest/v1/rpc/sync_library",
+          );
+          assert.equal(tokensRead.at(-1), replacementToken);
+          requests.push({
+            authorization: new Headers(init?.headers).get("Authorization"),
+            changes: JSON.parse(String(init?.body)).changes,
+          });
+          return new Response(
+            JSON.stringify({
+              generation: c.settings.generation,
+              conflicts: [],
+              records: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        },
+      },
+    },
+  );
+  await client.auth.stopAutoRefresh();
+  client.auth.getSession = async () => {
+    const first = tokensRead.length === 0,
+      token = first ? checkedToken : replacementToken;
+    tokensRead.push(token);
+    return {
+      data: {
+        session: {
+          user: { id: first ? owner : "22222222-1111-4222-8333-abcdef123456" },
+          access_token: token,
+        } as any,
+      },
+      error: null,
+    };
+  };
+  c.client = client;
+  disk.state.sources = [source];
+  disk.state.credentials[source.id] = credentials(
+    "https://owned-fixture.invalid",
+  );
+  c.source(source);
+  clearTimeout(c.timer);
+  await c.sync();
+  assert.deepEqual(tokensRead, [checkedToken, replacementToken]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].authorization, `Bearer ${checkedToken}`);
+  assert.equal(requests[0].changes[0].kind, "source");
+  assert.equal(requests[0].changes[0].payload.format, "account-v2");
+  assert.deepEqual(disk.state.journal.pending, {});
+  assert.notEqual(c.lastSync, undefined);
+  await client.auth.stopAutoRefresh();
 });
 test("failed password change cannot later replace the current password wrapper", async () => {
   const { c, vault } = fakeCloud(),
@@ -728,6 +877,7 @@ test("account sources sync without a vault key and recovery preserves all librar
   let changedPassword = false;
   c.client = {
     auth: {
+      getSession: async () => syncSession(),
       getUser: async () => ({
         data: { user: { id: c.identity.id, email: c.identity.email } },
       }),
@@ -736,7 +886,7 @@ test("account sources sync without a vault key and recovery preserves all librar
         return {};
       },
     },
-    rpc: async (name: string) => {
+    rpc: syncRPC(async (name: string) => {
       assert.equal(
         name,
         "sync_library",
@@ -745,7 +895,7 @@ test("account sources sync without a vault key and recovery preserves all librar
       return {
         data: { records: [], conflicts: [], generation: c.settings.generation },
       };
-    },
+    }),
   };
   c.recovery = true;
   await c.auth("reset", { password: "a new account password" });

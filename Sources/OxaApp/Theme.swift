@@ -43,7 +43,7 @@ struct ArtView: View {
                     Image(media.id == "preview-episode" ? "preview-series" : media.id).resizable().scaledToFill()
                 } else if let url = wide ? (media.backdrop ?? media.poster) : media.poster, ["https", "http"].contains(url.scheme ?? "") {
                     fallback
-                    SafeArtwork(url: url, sourceID: media.sourceID)
+                    SafeArtwork(url: url, sourceID: media.sourceID, pixelSize: min(1200, Int(max(geometry.size.width, geometry.size.height) * 2)))
                 } else { fallback }
             }.frame(width: geometry.size.width, height: geometry.size.height).clipped()
         }.accessibilityHidden(true)

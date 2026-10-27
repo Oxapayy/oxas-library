@@ -4,7 +4,8 @@ import XCTest
 final class ProviderTests: XCTestCase {
     private func api(_ kind: SourceKind, path: String) -> MediaAPI {
         let source = MediaSource(name: "Fixture", kind: kind, host: "127.0.0.1", allowHTTP: true)
-        return MediaAPI(source: source, credentials: Credentials(endpoint: "http://127.0.0.1:8789/\(path)", username: "fixture", password: "fixture-password", token: "fixture-token", userID: "user-1"))
+        let port = ProcessInfo.processInfo.environment["OXA_FIXTURE_PORT"] ?? "8789"
+        return MediaAPI(source: source, credentials: Credentials(endpoint: "http://127.0.0.1:\(port)/\(path)", username: "fixture", password: "fixture-password", token: "fixture-token", userID: "user-1"))
     }
     private func requireFixtures() throws {
         guard ProcessInfo.processInfo.environment["OXA_PROVIDER_FIXTURES"] == "1" else { throw XCTSkip("Start scripts/api-fixture-server.py and set OXA_PROVIDER_FIXTURES=1 to run provider contract tests.") }
@@ -29,6 +30,17 @@ final class ProviderTests: XCTestCase {
         let catalog = try await client.catalog(); XCTAssertEqual(catalog.media.count, 2)
         let download = try await client.playbackURL(catalog.media[0], download: true)
         XCTAssertEqual(download.path, "/emby/Items/movie-1/Download")
+    }
+    func testCatalogRejectsServersIgnoringPagination() async throws {
+        try requireFixtures()
+        for (kind, path) in [(SourceKind.jellyfin, "repeated-jellyfin"), (.plex, "repeated-plex")] {
+            do {
+                _ = try await api(kind, path: path).catalog()
+                XCTFail("A repeating server must not keep growing the catalog")
+            } catch {
+                XCTAssertTrue(error.localizedDescription.contains("repeated a catalog page"), error.localizedDescription)
+            }
+        }
     }
     func testPlexAllMediaKindsAndPartResolution() async throws {
         try requireFixtures()

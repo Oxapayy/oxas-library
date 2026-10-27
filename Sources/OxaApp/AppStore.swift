@@ -3,7 +3,7 @@ import Observation
 import AVFoundation
 
 @MainActor @Observable final class AppStore {
-    var state = LibrarySnapshot()
+    var state = LibraryState()
     var accountID: UUID?
     var account: AccountController!
     var libraryEpoch = UUID()
@@ -21,21 +21,23 @@ import AVFoundation
     var preview = false
     var storageAvailable = true
     var downloads: DownloadManager!
-    let vault = Vault()
+    let vault: Vault
+    let identityVault: Vault
     var disk: EncryptedDisk?
-    init() {
+    @ObservationIgnored let persistence = DiskWriteQueue()
+    init(disk injectedDisk: EncryptedDisk? = nil, vault: Vault = Vault(), identityVault: Vault = Vault(), startServices: Bool = true) {
+        self.vault = vault; self.identityVault = identityVault
         do {
-            let disk = try EncryptedDisk(); self.disk = disk
-            if let data = try Vault().read("active-account"), let owner = try? JSONDecoder().decode(AccountIdentity.self, from: data) {
+            let disk = try injectedDisk ?? EncryptedDisk(); self.disk = disk
+            if let data = try identityVault.read("active-account"), let owner = try? JSONDecoder().decode(AccountIdentity.self, from: data) {
                 accountID = owner.id; vault.namespace = owner.id.uuidString + ":"
-                state = try disk.loadNamed("library-\(owner.id)", as: LibrarySnapshot.self) ?? LibrarySnapshot()
-            } else { state = try disk.load() }
+                state = LibraryState(try disk.loadNamed("library-\(owner.id)", as: LibrarySnapshot.self) ?? LibrarySnapshot())
+            } else { state = LibraryState(try disk.load()) }
         }
         catch { storageAvailable = false; self.error = "The saved library could not be opened. Your data has been preserved. \(error.localizedDescription)" }
-        downloads = DownloadManager(store: self)
-        account = AccountController(store: self)
+        if startServices { downloads = DownloadManager(store: self); account = AccountController(store: self) }
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ui-test-reset") { state = LibrarySnapshot(); save() }
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-reset") { state = LibraryState(); save() }
         if ProcessInfo.processInfo.arguments.contains("--ui-test-episode-player") {
             let source = MediaSource(name: "Local playback fixture", kind: .direct, host: "127.0.0.1", allowHTTP: true)
             let endpoint = "http://127.0.0.1:8789/test-stream.mp4"
@@ -49,6 +51,9 @@ import AVFoundation
         }
         #endif
         if ProcessInfo.processInfo.arguments.contains("--preview-library") { enablePreview() }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-large-library") { enablePerformanceFixture() }
+        #endif
     }
     var sources: [MediaSource] { state.sources }
     var catalog: [Media] { state.media }
@@ -93,15 +98,35 @@ import AVFoundation
         }
         save()
     }
-    func media(_ id: String) -> Media? { state.media.first { $0.id == id } ?? state.transfers.first { $0.id == id }?.media }
+    func media(_ id: String) -> Media? { state.item(id) ?? state.transfers.first { $0.id == id }?.media }
     func source(_ id: UUID) -> MediaSource? { sources.first { $0.id == id } }
-    func persistSnapshot() throws {
+    func persistSnapshot() async throws {
         guard !preview, storageAvailable, let disk else { throw OxaError.message("Local storage is unavailable.") }
-        if let accountID { try disk.saveNamed(state, name: "library-\(accountID)") } else { try disk.save(state) }
+        let snapshot = state.snapshot, name = accountID.map { "library-\($0)" }
+        try await persistence.flush(key: name ?? "library") {
+            if let name { try disk.saveNamed(snapshot, name: name) } else { try disk.save(snapshot) }
+        }
     }
     func save() {
         guard !preview, storageAvailable, let disk else { return }
-        do { try persistSnapshot() } catch { self.error = "Could not save your library. \(error.localizedDescription)" }
+        let snapshot = state.snapshot, name = accountID.map { "library-\($0)" }, context = libraryEpoch
+        persistence.schedule(key: name ?? "library", write: {
+            if let name { try disk.saveNamed(snapshot, name: name) } else { try disk.save(snapshot) }
+        }, onError: { [weak self] error in
+            Task { @MainActor in
+                guard let self, self.libraryEpoch == context else { return }
+                self.error = "Could not save your library. \(error.localizedDescription)"
+            }
+        })
+    }
+    func saveForBackground() {
+        guard !preview, storageAvailable else { return }
+        let task = UIApplication.shared.beginBackgroundTask(withName: "Save library")
+        Task {
+            defer { if task != .invalid { UIApplication.shared.endBackgroundTask(task) } }
+            do { try await persistSnapshot(); try await account?.persistJournal() }
+            catch { self.error = "Could not save your library. \(error.localizedDescription)" }
+        }
     }
     func api(_ id: UUID) throws -> MediaAPI {
         guard let source = source(id) else { throw OxaError.message("This source was removed. Add it again to stream this title.") }
@@ -185,7 +210,7 @@ import AVFoundation
         state.websitePages?.removeAll { $0.sourceID == source.id }
         notices.removeValue(forKey: source.id); save()
     }
-    func episodes(_ series: Media) -> [Media] { Media.ordered(state.media.filter { $0.sourceID == series.sourceID && $0.seriesID == series.providerID && $0.kind == .episode }) }
+    func episodes(_ series: Media) -> [Media] { state.episodes(sourceID: series.sourceID, seriesID: series.providerID) }
     func loadEpisodes(_ series: Media) async {
         let context = libraryEpoch
         if series.websiteItem != nil {
@@ -201,26 +226,37 @@ import AVFoundation
         catch { self.error = safeMessage(error) }
     }
     func mergeMedia(_ items: [Media]) {
-        reconcileCloudMetadata(items)
-        var indexes = Dictionary(state.media.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        mergeMedia(items, into: state)
+    }
+    private func mergeMedia(_ items: [Media], into state: LibraryState) {
+        reconcileCloudMetadata(items, into: state)
+        var media = state.media
+        var indexes = Dictionary(media.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
         for var item in items {
             if let index = indexes[item.id] {
-                let old = state.media[index]
+                let old = media[index]
                 item.subtitlePath = old.subtitlePath; item.subtitleDelay = old.subtitleDelay
                 if item.websiteItem?.seasons.isEmpty == true, let seasons = old.websiteItem?.seasons { item.websiteItem?.seasons = seasons }
-                state.media[index] = item
-            } else { indexes[item.id] = state.media.count; state.media.append(item) }
+                media[index] = item
+            } else { indexes[item.id] = media.count; media.append(item) }
         }
+        state.media = media
     }
     private func reconcileCloudMetadata(_ items: [Media]) {
+        reconcileCloudMetadata(items, into: state)
+    }
+    private func reconcileCloudMetadata(_ items: [Media], into state: LibraryState) {
+        let aliases = Dictionary(grouping: state.media.filter { $0.cloudIdentity != nil }, by: { $0.cloudIdentity! })
+        guard !aliases.isEmpty else { return }
+        var retired: Set<String> = []
         for item in items where item.cloudIdentity == nil {
-            let cached = state.media.filter { $0.cloudIdentity == item.cloudKey && $0.id != item.id }
-            for old in cached {
+            for old in aliases[item.cloudKey] ?? [] where old.id != item.id {
                 if let progress = state.progress.removeValue(forKey: old.id), state.progress[item.id] == nil || state.progress[item.id]!.playedAt < progress.playedAt { state.progress[item.id] = progress }
                 if state.favorites.remove(old.id) != nil { state.favorites.insert(item.id) }
-                state.media.removeAll { $0.id == old.id }
+                retired.insert(old.id)
             }
         }
+        state.media.removeAll { retired.contains($0.id) }
     }
     func loadWebsiteDetails(_ item: Media) async {
         let context = libraryEpoch
@@ -307,7 +343,7 @@ import AVFoundation
         guard context == libraryEpoch else { throw CancellationError() }
         if selection.download {
             let batch = selection.batch.isEmpty ? [prepared] : selection.batch
-            for var item in batch { item.downloadPreference = choice; item.websiteResolved = selection.batch.isEmpty; downloads.enqueuePrepared(item) }
+            downloads.enqueueBatch(batch.map { item in var item = item; item.downloadPreference = choice; item.websiteResolved = selection.batch.isEmpty; return item })
             return
         }
         guard let url = prepared.stream else { throw OxaError.message("No playable stream was returned.") }
@@ -339,7 +375,7 @@ import AVFoundation
     }
     func downloadSeason(_ episodes: [Media]) {
         guard let first = episodes.first else { return }
-        if first.websiteItem == nil { for item in episodes { downloads.enqueue(item) }; return }
+        if first.websiteItem == nil { downloads.enqueueBatch(episodes); return }
         Task {
             do { try await requestSources(first, download: true); sourceSelection?.batch = episodes }
             catch { self.error = safeMessage(error) }
@@ -384,12 +420,13 @@ import AVFoundation
     }
     func nextEpisode(_ item: Media) -> Media? {
         guard item.kind == .episode, let seriesID = item.seriesID else { return nil }
-        let episodes = Media.ordered(state.media.filter { $0.sourceID == item.sourceID && $0.seriesID == seriesID && $0.kind == .episode })
+        let episodes = state.episodes(sourceID: item.sourceID, seriesID: seriesID)
         guard let index = episodes.firstIndex(where: { $0.id == item.id }), index + 1 < episodes.count else { return nil }; return episodes[index + 1]
     }
     func toggleFavorite(_ item: Media) { if state.favorites.contains(item.id) { state.favorites.remove(item.id) } else { state.favorites.insert(item.id) }; save(); account?.watchlistChanged(item, present: state.favorites.contains(item.id)) }
     func guide(_ item: Media) -> [TVProgram] {
-        state.programs.filter { $0.sourceID == item.sourceID && $0.channelID == item.channelID && $0.end > .now }.sorted { $0.start < $1.start }
+        guard let channel = item.channelID else { return [] }
+        return state.guide(sourceID: item.sourceID, channelID: channel, after: .now)
     }
     func safeMessage(_ error: Error) -> String {
         if error is OxaError { return error.localizedDescription }
@@ -402,37 +439,58 @@ import AVFoundation
         }
         return "This operation could not be completed. Check the source and available storage, then try again."
     }
-    func activateAccount(_ identity: AccountIdentity, mergeGuest: Bool) throws {
+    func activateAccount(_ identity: AccountIdentity, mergeGuest: Bool) async throws {
         guard accountID != identity.id else { return }
-        save()
-        let guest = accountID == nil && mergeGuest ? state : LibrarySnapshot()
+        guard let disk else { throw OxaError.message("Local storage is unavailable.") }
+        let context = libraryEpoch
+        try await persistSnapshot()
+        guard context == libraryEpoch else { throw CancellationError() }
+        let guest = accountID == nil && mergeGuest ? state.snapshot : LibrarySnapshot()
         let credentials = Dictionary(uniqueKeysWithValues: guest.sources.compactMap { source -> (UUID, Credentials)? in
             guard let secret = try? vault.credentials(source.id) else { return nil }; return (source.id, secret)
         })
-        let restored = try disk?.loadNamed("library-\(identity.id)", as: LibrarySnapshot.self) ?? LibrarySnapshot()
-        libraryEpoch = UUID(); playback = nil; pendingPlayback = nil; sourceSelection = nil; notices = [:]
-        accountID = identity.id; vault.namespace = identity.id.uuidString + ":"; state = restored
-        for source in guest.sources where !state.sources.contains(where: { $0.id == source.id }) {
-            if let secret = credentials[source.id] { try vault.save(secret, id: source.id); state.sources.append(source) }
+        let restored = try await persistence.read { try disk.loadNamed("library-\(identity.id)", as: LibrarySnapshot.self) ?? LibrarySnapshot() }
+        guard context == libraryEpoch else { throw CancellationError() }
+        let staged = LibraryState(restored), destinationVault = Vault()
+        destinationVault.namespace = identity.id.uuidString + ":"
+        for source in guest.sources where !staged.sources.contains(where: { $0.id == source.id }) {
+            if let secret = credentials[source.id] { try destinationVault.save(secret, id: source.id); staged.sources.append(source) }
         }
-        mergeMedia(guest.media)
-        state.progress.merge(guest.progress) { current, incoming in current.playedAt > incoming.playedAt ? current : incoming }
-        state.favorites.formUnion(guest.favorites)
-        state.transfers += guest.transfers.filter { transfer in !state.transfers.contains(where: { $0.id == transfer.id }) }
-        try persistSnapshot()
-        try Vault().write(JSONEncoder().encode(identity), key: "active-account")
-        if mergeGuest && !guest.transfers.isEmpty { var remainingGuest = guest; remainingGuest.transfers = []; try disk?.save(remainingGuest) }
+        mergeMedia(guest.media, into: staged)
+        staged.progress.merge(guest.progress) { current, incoming in current.playedAt > incoming.playedAt ? current : incoming }
+        staged.favorites.formUnion(guest.favorites)
+        staged.transfers += guest.transfers.filter { transfer in !staged.transfers.contains(where: { $0.id == transfer.id }) }
+        let snapshot = staged.snapshot, name = "library-\(identity.id)"
+        try await persistence.flush(key: name) { try disk.saveNamed(snapshot, name: name) }
+        guard context == libraryEpoch else { throw CancellationError() }
+        // The destination and marker must be durable before changing the live
+        // scope. Any failure above leaves the old account/guest view untouched.
+        try identityVault.write(JSONEncoder().encode(identity), key: "active-account")
+        commitLibrary(snapshot, owner: identity.id)
+        if mergeGuest && !guest.transfers.isEmpty {
+            var remainingGuest = guest; remainingGuest.transfers = []
+            // Failure to retire duplicate guest references must never turn an
+            // already committed account switch into a half-failed sign-in.
+            try? await persistence.flush(key: "library") { try disk.save(remainingGuest) }
+        }
     }
-    func activateGuest() throws {
-        save(); libraryEpoch = UUID(); playback = nil; pendingPlayback = nil; sourceSelection = nil; notices = [:]
-        let guest = try disk?.load() ?? LibrarySnapshot()
-        accountID = nil; vault.namespace = ""; state = guest
-        try Vault().remove("active-account")
+    func activateGuest() async throws {
+        guard let disk else { throw OxaError.message("Local storage is unavailable.") }
+        let context = libraryEpoch
+        try await persistSnapshot()
+        let guest = try await persistence.read { try disk.load() }
+        guard context == libraryEpoch else { throw CancellationError() }
+        try identityVault.remove("active-account")
+        commitLibrary(guest, owner: nil)
+    }
+    private func commitLibrary(_ snapshot: LibrarySnapshot, owner: UUID?) {
+        libraryEpoch = UUID(); playback = nil; pendingPlayback = nil; sourceSelection = nil; notices = [:]
+        accountID = owner; vault.namespace = owner.map { $0.uuidString + ":" } ?? ""; state = LibraryState(snapshot)
     }
     func enablePreview() {
         preview = true
         let id = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        state = LibrarySnapshot(); state.sources = [MediaSource(id: id, name: "Preview library", kind: .jellyfin, host: "Preview — no connection")]
+        state = LibraryState(); state.sources = [MediaSource(id: id, name: "Preview library", kind: .jellyfin, host: "Preview — no connection")]
         let series = Media(id: "preview-series", sourceID: id, providerID: "series", title: "The Quiet Coast", kind: .series, overview: "A journey along the edges of the Atlantic, where the sea sets the pace.", year: 2026)
         var episode = Media(id: "preview-episode", sourceID: id, providerID: "episode", title: "Where the land ends", kind: .episode, overview: "The fishing villages and open horizons of the western coast.", duration: 2820)
         episode.seriesID = "series"; episode.seriesTitle = series.title; episode.season = 1; episode.episode = 3
@@ -444,6 +502,41 @@ import AVFoundation
     }
     func leavePreview() {
         preview = false
-        do { state = try disk?.load() ?? LibrarySnapshot() } catch { storageAvailable = false; self.error = "The saved library could not be opened. Existing data was preserved." }
+        do { state = LibraryState(try disk?.load() ?? LibrarySnapshot()) } catch { storageAvailable = false; self.error = "The saved library could not be opened. Existing data was preserved." }
     }
+    #if DEBUG
+    private func enablePerformanceFixture() {
+        preview = true
+        let sourceID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        var fixture = LibrarySnapshot()
+        fixture.sources = [MediaSource(id: sourceID, name: "Performance fixture", kind: .jellyfin, host: "fixture.invalid")]
+        fixture.media = (0..<10_000).map { Media(id: "performance-film-\($0)", sourceID: sourceID, providerID: "film-\($0)", title: "Fixture Film \($0)", kind: .movie) }
+        for number in 0..<100 {
+            let series = Media(id: "performance-series-\(number)", sourceID: sourceID, providerID: "series-\(number)", title: "Fixture Series \(number)", kind: .series)
+            fixture.media.append(series)
+            for episode in 1...100 {
+                var item = Media(id: "performance-episode-\(number)-\(episode)", sourceID: sourceID, providerID: "episode-\(number)-\(episode)", title: "Episode \(episode)", kind: .episode)
+                item.seriesID = series.providerID; item.seriesTitle = series.title; item.season = 1; item.episode = episode
+                fixture.media.append(item)
+            }
+        }
+        for number in 0..<400 {
+            var channel = Media(id: "performance-channel-\(number)", sourceID: sourceID, providerID: "channel-\(number)", title: "Fixture Channel \(number)", kind: .channel)
+            channel.channelID = channel.providerID; channel.group = "Group \(number % 10)"; fixture.media.append(channel)
+            for slot in 0..<50 {
+                fixture.programs.append(TVProgram(id: "performance-program-\(number)-\(slot)", sourceID: sourceID, channelID: channel.providerID, title: "Program \(slot)", start: Date().addingTimeInterval(Double(slot - 1) * 3600), end: Date().addingTimeInterval(Double(slot) * 3600), overview: "Local performance fixture"))
+            }
+        }
+        fixture.transfers = [Transfer(id: fixture.media[0].id, media: fixture.media[0], state: .downloading)]
+        state = LibraryState(fixture)
+        Task { [weak self] in
+            for tick in 0..<480 {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let self, self.preview, self.state.transfers.count == 1 else { return }
+                self.state.transfers[0].fraction = Double(tick % 100) / 100
+                self.state.transfers[0].bytes = Int64(tick) * 100_000
+            }
+        }
+    }
+    #endif
 }

@@ -30,14 +30,15 @@ final class Vault {
     }
     func save(_ credentials: Credentials, id: UUID) throws { try write(JSONEncoder().encode(credentials), key: id.uuidString) }
 }
-final class EncryptedDisk {
-    let vault = Vault()
+class EncryptedDisk {
+    let vault: Vault
     let root: URL
     let mediaRoot: URL
-    init() throws {
-        root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Oxa", isDirectory: true)
-        mediaRoot = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Downloads", isDirectory: true)
-        for folder in [root, mediaRoot] {
+    init(root: URL? = nil, mediaRoot: URL? = nil, vault: Vault = Vault()) throws {
+        self.vault = vault
+        self.root = try root ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Oxa", isDirectory: true)
+        self.mediaRoot = try mediaRoot ?? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Downloads", isDirectory: true)
+        for folder in [self.root, self.mediaRoot] {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             var excluded = folder; var values = URLResourceValues(); values.isExcludedFromBackup = true; try excluded.setResourceValues(values)
         }

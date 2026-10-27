@@ -16,7 +16,7 @@ struct DownloadsView: View {
                             MediaRow(media: transfer.media)
                             if transfer.state == .downloading || transfer.state == .queued {
                                 ProgressView(value: transfer.fraction).tint(OxaTheme.accent)
-                                HStack { Text(transfer.state == .queued ? "Queued" : "\(Int(transfer.fraction * 100))% · \(ByteCountFormatter.string(fromByteCount: transfer.bytes, countStyle: .file))"); Spacer(); Button("Cancel") { store.downloads.cancel(transfer.id) } }.font(.subheadline)
+                                HStack { Text(transfer.state == .queued ? "Queued" : "\(Int(transfer.fraction * 100))% · \(ByteCountFormatter.string(fromByteCount: transfer.bytes, countStyle: .file))").accessibilityIdentifier("download-progress-\(transfer.id)"); Spacer(); Button("Cancel") { store.downloads.cancel(transfer.id) } }.font(.subheadline)
                             } else if transfer.state == .ready {
                                 HStack {
                                     Button { Task { await store.play(transfer.media) } } label: { Label("Play Offline", systemImage: "play.fill").frame(minHeight: 44) }

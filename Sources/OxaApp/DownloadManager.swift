@@ -4,6 +4,12 @@ import Observation
 
 @MainActor final class BackgroundEvents {
     static var completions: [String: () -> Void] = [:]
+    static func finish(_ identifier: String, persist: () async throws -> Void, onError: (Error) -> Void) async {
+        // The outstanding OS handler keeps a background-launched app alive.
+        // Release it only after the ready/path checkpoint reaches encrypted disk.
+        do { try await persist() } catch { onError(error) }
+        completions.removeValue(forKey: identifier)?()
+    }
 }
 @MainActor final class DownloadManager: NSObject, @preconcurrency URLSessionDownloadDelegate, @preconcurrency AVAssetDownloadDelegate {
     weak var store: AppStore?
@@ -12,6 +18,7 @@ import Observation
     private var generations: [String: UUID] = [:]
     private var tasks: [String: URLSessionTask] = [:]
     private var liveAssets: [String: AVURLAsset] = [:]
+    private var progressGate = DownloadProgressGate()
     private lazy var files: URLSession = {
         let config = URLSessionConfiguration.background(withIdentifier: "app.oxas.library.files")
         config.allowsCellularAccess = true; config.isDiscretionary = false
@@ -27,6 +34,7 @@ import Observation
         Task { await restore() }
     }
     private func restore() async {
+        guard store?.preview != true else { return }
         let context = store?.libraryEpoch
         let runningFiles = await files.allTasks; let runningStreams = await streams.allTasks
         guard context == store?.libraryEpoch else { return }
@@ -48,12 +56,20 @@ import Observation
     }
     func enqueuePrepared(_ media: Media) { enqueue(media) }
     func enqueue(_ media: Media) {
-        guard let store, !store.preview, media.kind == .movie || media.kind == .episode else { return }
-        if let index = store.state.transfers.firstIndex(where: { $0.id == media.id }) {
-            guard ![.ready, .downloading, .queued].contains(store.state.transfers[index].state) else { return }
-            store.state.transfers[index] = Transfer(id: media.id, media: media)
-        } else { store.state.transfers.append(Transfer(id: media.id, media: media)) }
-        generations[media.id] = UUID(); cancelled.remove(media.id); store.save(); pump()
+        enqueueBatch([media])
+    }
+    func enqueueBatch(_ items: [Media]) {
+        guard let store, !store.preview else { return }
+        var transfers = store.state.transfers
+        var indexes = Dictionary(transfers.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        for media in items where media.kind == .movie || media.kind == .episode {
+            if let index = indexes[media.id] {
+                guard ![.ready, .downloading, .queued].contains(transfers[index].state) else { continue }
+                transfers[index] = Transfer(id: media.id, media: media)
+            } else { indexes[media.id] = transfers.count; transfers.append(Transfer(id: media.id, media: media)) }
+            generations[media.id] = UUID(); cancelled.remove(media.id)
+        }
+        store.state.transfers = transfers; store.save(); pump()
     }
     private func pump() {
         guard let store else { return }
@@ -106,6 +122,7 @@ import Observation
         } catch { if store.libraryEpoch == context { fail(transfer.id, store.safeMessage(error)) } }
     }
     func cancel(_ id: String) {
+        progressGate.remove(id)
         generations[id] = UUID(); cancelled.insert(id); tasks.removeValue(forKey: id)?.cancel(); liveAssets.removeValue(forKey: id)
         update(id) { $0.state = .cancelled; $0.error = nil }; pump()
     }
@@ -118,16 +135,20 @@ import Observation
             store.state.transfers.removeAll { $0.id == id }; store.save()
         } catch { store.error = "The saved file could not be deleted. Try again." }
     }
-    private func update(_ id: String, _ mutation: (inout Transfer) -> Void) {
+    private func update(_ id: String, persist: Bool = true, _ mutation: (inout Transfer) -> Void) {
         guard let store, let index = store.state.transfers.firstIndex(where: { $0.id == id }) else { return }
-        mutation(&store.state.transfers[index]); store.save()
+        mutation(&store.state.transfers[index])
+        if persist { store.save() }
     }
     private func fail(_ id: String, _ message: String) {
         if cancelled.contains(id) { return }; update(id) { $0.state = .failed; $0.error = message }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         guard let id = downloadTask.taskDescription, tasks[id] === downloadTask, !cancelled.contains(id) else { return }
-        update(id) { $0.bytes = totalBytesWritten; $0.fraction = totalBytesExpectedToWrite > 0 ? min(0.99, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)) : 0 }
+        guard progressGate.shouldPublish(id, at: ProcessInfo.processInfo.systemUptime) else { return }
+        // Persist queue/terminal states and the background snapshot. Transient
+        // byte counters do not need to re-encode the complete catalog.
+        update(id, persist: false) { $0.bytes = totalBytesWritten; $0.fraction = totalBytesExpectedToWrite > 0 ? min(0.99, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)) : 0 }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let id = downloadTask.taskDescription, tasks[id] === downloadTask, !cancelled.contains(id), let root = store?.disk?.mediaRoot else { return }
@@ -144,9 +165,10 @@ import Observation
     }
     func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, didLoad timeRange: CMTimeRange, totalTimeRangesLoaded loadedTimeRanges: [NSValue], timeRangeExpectedToLoad: CMTimeRange) {
         guard let id = assetDownloadTask.taskDescription, tasks[id] === assetDownloadTask else { return }
+        guard progressGate.shouldPublish(id, at: ProcessInfo.processInfo.systemUptime) else { return }
         let expected = timeRangeExpectedToLoad.duration.seconds
         let actual = loadedTimeRanges.reduce(0.0) { $0 + $1.timeRangeValue.duration.seconds }
-        update(id) { $0.fraction = expected.isFinite && expected > 0 ? min(0.99, actual / expected) : 0 }
+        update(id, persist: false) { $0.fraction = expected.isFinite && expected > 0 ? min(0.99, actual / expected) : 0 }
     }
     func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, didFinishDownloadingTo location: URL) {
         guard let id = assetDownloadTask.taskDescription, tasks[id] === assetDownloadTask, !cancelled.contains(id), let root = store?.disk?.mediaRoot else { return }
@@ -160,6 +182,7 @@ import Observation
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let id = task.taskDescription, tasks[id] === task else { return }
+        progressGate.remove(id)
         tasks.removeValue(forKey: id); liveAssets.removeValue(forKey: id)
         if let error, !cancelled.contains(id) { fail(id, store?.safeMessage(error) ?? "Download failed. Try again.") }
         else if task is AVAssetDownloadTask, !cancelled.contains(id) {
@@ -194,6 +217,25 @@ import Observation
         } catch { /* The video remains usable; captions can be imported manually. */ }
     }
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        if let id = session.configuration.identifier { BackgroundEvents.completions.removeValue(forKey: id)?() }
+        guard let id = session.configuration.identifier else { return }
+        Task { @MainActor [weak store] in
+            await BackgroundEvents.finish(id, persist: {
+                guard let store else { return }
+                try await store.persistSnapshot()
+            }, onError: { error in
+                store?.error = "Could not save the completed download. Check free storage and keep the app open to retry. \(error.localizedDescription)"
+            })
+        }
     }
+}
+
+/// Network callbacks can arrive hundreds of times per second. Publish progress
+/// at most four times a second; terminal states always bypass this gate.
+struct DownloadProgressGate {
+    private var lastPublished: [String: TimeInterval] = [:]
+    mutating func shouldPublish(_ id: String, at time: TimeInterval) -> Bool {
+        if let last = lastPublished[id], time - last < 0.25 { return false }
+        lastPublished[id] = time; return true
+    }
+    mutating func remove(_ id: String) { lastPublished.removeValue(forKey: id) }
 }

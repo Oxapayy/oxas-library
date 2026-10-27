@@ -9,6 +9,9 @@ struct LibraryView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeSize = 32
     private var visible: [Media] { store.catalog.filter { [.movie, .series].contains($0.kind) && (selectedSource == nil || $0.sourceID == selectedSource) && (type == "All" || type == "Movies" && $0.kind == .movie || type == "Series" && $0.kind == .series) } }
     var body: some View {
+        let visible = visible
+        let newEpisodes = store.newEpisodes.filter { selectedSource == nil || $0.sourceID == selectedSource }
+        let continueWatching = store.continueWatching.filter { selectedSource == nil || $0.sourceID == selectedSource }
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 HStack(spacing: 10) {
@@ -30,19 +33,19 @@ struct LibraryView: View {
                             Label(selectedSource.flatMap { store.source($0)?.name } ?? "All sources", systemImage: "line.3.horizontal.decrease").font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(1)
                         }
                     }.padding(.horizontal, 20)
-                    if !store.newEpisodes.isEmpty {
+                    if !newEpisodes.isEmpty {
                         VStack(spacing: 14) {
                             SectionHeading(title: "New Episodes")
                             ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 16) { ForEach(store.newEpisodes.filter { selectedSource == nil || $0.sourceID == selectedSource }) { item in ResumeCard(media: item, isNew: true).frame(width: 340) } }.padding(.horizontal, 20)
+                                LazyHStack(spacing: 16) { ForEach(newEpisodes) { item in ResumeCard(media: item, isNew: true).frame(width: 340) } }.padding(.horizontal, 20)
                             }
                         }
                     }
-                    if !store.continueWatching.isEmpty {
+                    if !continueWatching.isEmpty {
                         VStack(spacing: 14) {
                             SectionHeading(title: "Continue Watching")
                             ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 16) { ForEach(store.continueWatching.filter { selectedSource == nil || $0.sourceID == selectedSource }) { item in ResumeCard(media: item).containerRelativeFrame(.horizontal) { width, _ in store.continueWatching.count == 1 ? width - 40 : min(340, width - 40) } } }.padding(.horizontal, 20)
+                                LazyHStack(spacing: 16) { ForEach(continueWatching) { item in ResumeCard(media: item).containerRelativeFrame(.horizontal) { width, _ in continueWatching.count == 1 ? width - 40 : min(340, width - 40) } } }.padding(.horizontal, 20)
                             }
                         }
                     }
@@ -134,15 +137,29 @@ struct SearchView: View {
     @State private var remoteBusy = false
     @State private var remoteMessage: String?
     @State private var searchRetry = 0
-    private var results: [Media] { store.catalog.filter { [.movie, .series].contains($0.kind) && (query.isEmpty || "\($0.title) \($0.seriesTitle ?? "") \($0.overview)".localizedCaseInsensitiveContains(query)) }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
+    @State private var results: [Media] = []
+    @State private var localBusy = false
     var body: some View {
         ScrollView {
             if remoteBusy { ProgressView("Searching connected libraries…").padding(20) }
             if let remoteMessage { VStack(spacing: 8) { Text(remoteMessage).font(.subheadline).foregroundStyle(OxaTheme.secondary); Button("Retry") { searchRetry += 1 } }.padding(20) }
-            if results.isEmpty { EmptyPanel(title: query.isEmpty ? "Find your next watch" : "No matching titles", message: query.isEmpty ? "Connect a source to search your films and series here." : "Try a different title or refresh your media sources.", icon: "magnifyingglass").padding(20) }
+            if localBusy && results.isEmpty { ProgressView("Searching your library…").padding(20) }
+            else if results.isEmpty { EmptyPanel(title: query.isEmpty ? "Find your next watch" : "No matching titles", message: query.isEmpty ? "Connect a source to search your films and series here." : "Try a different title or refresh your media sources.", icon: "magnifyingglass").padding(20) }
             else { LazyVStack(spacing: 18) { ForEach(results) { item in NavigationLink { MediaDetailView(media: item) } label: { MediaRow(media: item) }.buttonStyle(PressStyle()).accessibilityIdentifier("search-result-\(item.providerID)") } }.padding(20) }
         }.background(.black).navigationTitle("Search").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Films and series")
-            .task(id: "\(query):\(searchRetry)") {
+            .onChange(of: store.libraryEpoch) { results = [] }
+            .task(id: LocalSearchKey(query: query, revision: store.state.catalogRevision, epoch: store.libraryEpoch)) {
+                localBusy = true
+                do {
+                    if !query.isEmpty { try await Task.sleep(for: .milliseconds(120)) }
+                    let catalog = store.catalog, text = query
+                    let work = Task.detached(priority: .userInitiated) { try CatalogSearch.find(text, in: catalog) }
+                    let found = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+                    try Task.checkCancellation()
+                    results = found; localBusy = false
+                } catch { if !Task.isCancelled { localBusy = false } }
+            }
+            .task(id: "\(query):\(searchRetry):\(store.libraryEpoch)") {
                 remoteMessage = nil; remoteBusy = false
                 guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                 do {
@@ -152,6 +169,28 @@ struct SearchView: View {
                 } catch is CancellationError { }
                 catch { if !Task.isCancelled { remoteBusy = false; remoteMessage = store.safeMessage(error) } }
             }
+    }
+}
+
+private struct LocalSearchKey: Equatable {
+    let query: String
+    let revision: Int
+    let epoch: UUID
+}
+
+enum CatalogSearch {
+    nonisolated static func find(_ query: String, in catalog: [Media]) throws -> [Media] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var found: [Media] = []
+        for (index, item) in catalog.enumerated() {
+            if index.isMultiple(of: 256) { try Task.checkCancellation() }
+            guard item.kind == .movie || item.kind == .series else { continue }
+            if query.isEmpty || "\(item.title) \(item.seriesTitle ?? "") \(item.overview)".localizedCaseInsensitiveContains(query) { found.append(item) }
+        }
+        try Task.checkCancellation()
+        let ordered = found.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        try Task.checkCancellation()
+        return ordered
     }
 }
 struct MediaRow: View {

@@ -1,9 +1,9 @@
 name: Desktop checks and packages
 on:
   push:
-    paths: ['desktop/**', '.github/workflows/desktop.yml', 'Config/Cloud.example.json']
+    paths: ['desktop/**', '.github/workflows/desktop.yml', 'Config/Cloud.example.json', 'scripts/api-fixture-server.py', 'scripts/test-api-fixture-startup.py']
   pull_request:
-    paths: ['desktop/**', '.github/workflows/desktop.yml']
+    paths: ['desktop/**', '.github/workflows/desktop.yml', 'scripts/api-fixture-server.py', 'scripts/test-api-fixture-startup.py']
   workflow_dispatch:
     inputs:
       packages:
@@ -24,6 +24,9 @@ jobs:
         working-directory: desktop
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -31,6 +34,8 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - name: Verify local fixture startup does not depend on DNS
+        run: python ../scripts/test-api-fixture-startup.py
       - run: npm test
       - if: runner.os == 'macOS'
         run: npm run test:interop

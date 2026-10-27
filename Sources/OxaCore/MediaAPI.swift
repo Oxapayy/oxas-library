@@ -26,6 +26,34 @@ final class HTTPClient: @unchecked Sendable {
     }
 }
 struct CatalogResult { var media: [Media]; var programs: [TVProgram] = []; var warning: String?; var websiteConnection: WebsiteConnection?; var websitePages: [WebsiteCatalogPage] = [] }
+/// Per-refresh bounds supplement the transport's per-response limit. A server
+/// that ignores offsets must not keep growing a library until iOS kills it.
+struct CatalogImportBudget {
+    let maximumPages: Int
+    let maximumBytes: Int
+    let maximumItems: Int
+    private(set) var pages = 0
+    private(set) var bytes = 0
+    private var identities: Set<String> = []
+    init(maximumPages: Int = 500, maximumBytes: Int = 64 * 1024 * 1024, maximumItems: Int = 100_000) {
+        self.maximumPages = maximumPages; self.maximumBytes = maximumBytes; self.maximumItems = maximumItems
+    }
+    var responseLimit: Int { min(8 * 1024 * 1024, max(0, maximumBytes - bytes)) }
+    func checkNextPage() throws {
+        guard pages < maximumPages, responseLimit > 0 else { throw OxaError.message("This catalog exceeds the import limit. Add a smaller library or check the server’s pagination settings.") }
+    }
+    mutating func consume(bytes count: Int) throws {
+        try checkNextPage()
+        guard count >= 0, count <= maximumBytes - bytes else { throw OxaError.message("This catalog exceeds the import size limit. Add a smaller library.") }
+        pages += 1; bytes += count
+    }
+    mutating func unique(_ page: [Media]) throws -> [Media] {
+        let additions = page.filter { identities.insert($0.id).inserted }
+        guard page.isEmpty || !additions.isEmpty else { throw OxaError.message("The server repeated a catalog page. Your saved library was kept; check the server’s pagination settings.") }
+        guard identities.count <= maximumItems else { throw OxaError.message("This catalog contains too many titles. Add a smaller library.") }
+        return additions
+    }
+}
 struct MediaAPI {
     let source: MediaSource
     var credentials: Credentials
@@ -58,14 +86,22 @@ struct MediaAPI {
         updated.password = "" // store the scoped session, not the account password
         return updated
     }
+    private func catalogJSON(_ path: String, query: [String: String], budget: inout CatalogImportBudget) async throws -> [String: Any] {
+        try Task.checkCancellation(); try budget.checkNextPage()
+        let data = try await HTTPClient.shared.data(url(path, query: query), source: source, headers: authHeaders, limit: budget.responseLimit)
+        try budget.consume(bytes: data.count)
+        guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw OxaError.message("This address did not return the expected server API.") }
+        return result
+    }
     func catalog() async throws -> CatalogResult {
+        var budget = CatalogImportBudget(maximumPages: source.kind == .webdav ? 2000 : 500)
         switch source.kind {
         case .jellyfin, .emby:
             var items: [Media] = []; var start = 0
             while true {
-                let result = try await json("Users/\(credentials.userID)/Items", query: ["Recursive": "true", "IncludeItemTypes": "Movie,Series,Episode", "Fields": "Overview,MediaSources,MediaStreams", "StartIndex": "\(start)", "Limit": "200", "SortBy": "SortName", "SortOrder": "Ascending"])
+                let result = try await catalogJSON("Users/\(credentials.userID)/Items", query: ["Recursive": "true", "IncludeItemTypes": "Movie,Series,Episode", "Fields": "Overview,MediaSources,MediaStreams", "StartIndex": "\(start)", "Limit": "200", "SortBy": "SortName", "SortOrder": "Ascending"], budget: &budget)
                 let rows = result["Items"] as? [[String: Any]] ?? []
-                items += rows.compactMap(jellyItem); start += rows.count
+                items += try budget.unique(rows.compactMap(jellyItem)); start += rows.count
                 if rows.isEmpty || start >= (result["TotalRecordCount"] as? Int ?? start) { break }
                 try Task.checkCancellation()
             }
@@ -75,10 +111,10 @@ struct MediaAPI {
             for type in ["1", "2", "4"] {
                 var offset = 0
                 while true {
-                    let data = try await json("library/all", query: ["type": type, "X-Plex-Container-Start": "\(offset)", "X-Plex-Container-Size": "200"])
+                    let data = try await catalogJSON("library/all", query: ["type": type, "X-Plex-Container-Start": "\(offset)", "X-Plex-Container-Size": "200"], budget: &budget)
                     let box = data["MediaContainer"] as? [String: Any] ?? [:]
                     let rows = box["Metadata"] as? [[String: Any]] ?? []
-                    items += rows.compactMap(plexItem); offset += rows.count
+                    items += try budget.unique(rows.compactMap(plexItem)); offset += rows.count
                     if rows.isEmpty || offset >= (box["totalSize"] as? Int ?? offset) { break }
                     try Task.checkCancellation()
                 }
@@ -117,14 +153,17 @@ struct MediaAPI {
             while let directory = pending.popLast() {
                 guard visited.insert(directory).inserted else { continue }
                 guard visited.count <= 2000 else { throw OxaError.message("This NAS folder is too large. Add a smaller media subfolder.") }
+                try budget.checkNextPage()
                 var headers = authHeaders; headers["Depth"] = "1"; headers["Content-Type"] = "application/xml"
                 let body = Data("<?xml version=\"1.0\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:displayname/><d:resourcetype/></d:prop></d:propfind>".utf8)
-                let data = try await HTTPClient.shared.data(directory, source: source, headers: headers, method: "PROPFIND", body: body)
+                let data = try await HTTPClient.shared.data(directory, source: source, headers: headers, method: "PROPFIND", body: body, limit: budget.responseLimit)
+                try budget.consume(bytes: data.count)
                 for entry in try DAVParser().parse(data) {
                     guard let entryURL = URL(string: entry.href, relativeTo: directory)?.absoluteURL, URLPolicy.sameOrigin(base, entryURL), (entryURL.path == base.path || entryURL.path.hasPrefix(base.path.hasSuffix("/") ? base.path : base.path + "/")) else { continue }
                     if entry.directory {
                         if entryURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) != directory.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) { pending.append(entryURL) }
                     } else if ["mp4", "m4v", "mov", "mkv", "ts", "m3u8"].contains(entryURL.pathExtension.lowercased()) {
+                        guard items.count < budget.maximumItems else { throw OxaError.message("This NAS folder contains too many titles. Add a smaller media subfolder.") }
                         var item = Media(id: "\(source.id):\(entryURL.path)", sourceID: source.id, providerID: entryURL.path, title: entry.name.isEmpty ? entryURL.deletingPathExtension().lastPathComponent : entry.name, kind: .movie)
                         item.stream = entryURL; items.append(item)
                     }

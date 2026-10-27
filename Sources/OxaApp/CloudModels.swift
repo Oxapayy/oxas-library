@@ -7,7 +7,11 @@ struct CloudPayload: Codable {
     var format: String?
     init(value: String, format: String? = nil) { self.value = value; self.format = format }
     enum CodingKeys: String, CodingKey { case value, format }
-    init(from decoder: Decoder) throws { value = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(String.self, forKey: .value) ?? "" }
+    init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        value = try fields.decodeIfPresent(String.self, forKey: .value) ?? ""
+        format = try fields.decodeIfPresent(String.self, forKey: .format)
+    }
 }
 struct CloudChange: Codable, Identifiable {
     var kind: String

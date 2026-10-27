@@ -19,7 +19,7 @@ struct MediaDetailView: View {
     }
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 ArtView(media: current, wide: true).frame(height: 235).clipShape(RoundedRectangle(cornerRadius: 16))
                 VStack(alignment: .leading, spacing: 10) {
                     Text(current.displayTitle).font(.system(size: titleSize, weight: .bold)).tracking(-0.5)

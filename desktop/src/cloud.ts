@@ -630,18 +630,40 @@ export class Cloud {
           repulled = false,
           conflicts: any[] = [];
         for (let page = 0; page < 100; page++) {
-          const { data, error } = await this.client.rpc("sync_library", {
-            changes: send.map(({ mutationID, ...x }: any) => x),
-            after_revision: cursor,
-            expected_generation: this.settings.generation,
-          });
+          const client = this.client;
+          const { data: sessionData, error: sessionError } =
+            await client.auth.getSession();
+          if (
+            epoch !== this.epoch ||
+            scope !== this.disk.scope ||
+            client !== this.client ||
+            !this.ready
+          )
+            return;
+          const session = sessionData?.session,
+            token = session?.access_token;
+          if (
+            sessionError ||
+            typeof session?.user?.id !== "string" ||
+            session.user.id.toLowerCase() !== scope.toLowerCase() ||
+            typeof token !== "string" ||
+            !token
+          )
+            throw Error("Your account session changed. Sign in again to sync.");
+          // The SDK can switch sessions while its fetch wrapper awaits a token.
+          // Pin the checked owner's bearer to this request instead of letting
+          // that wrapper substitute the newly signed-in account's token.
+          const { data, error } = await client
+            .rpc("sync_library", {
+              changes: send.map(({ mutationID, ...x }: any) => x),
+              after_revision: cursor,
+              expected_generation: generation,
+            })
+            .setHeader("Authorization", `Bearer ${token}`);
           if (epoch !== this.epoch || scope !== this.disk.scope || !this.ready)
             return;
           if (error) throw error;
-          if (
-            data.generation.toUpperCase() !==
-            this.settings.generation.toUpperCase()
-          ) {
+          if (data.generation.toUpperCase() !== generation) {
             this.key = undefined;
             throw Error("Vault generation changed.");
           }

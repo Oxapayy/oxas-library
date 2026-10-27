@@ -14,6 +14,9 @@ struct IPTVView: View {
         }
     }
     var body: some View {
+        let channels = channels
+        let visible = visible
+        let groups = groups
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if channels.isEmpty {
@@ -45,7 +48,7 @@ struct IPTVView: View {
             HStack(spacing: 14) {
                 Button { Task { await store.play(channel) } } label: {
                     HStack(spacing: 14) {
-                        if let poster = channel.poster { SafeArtwork(url: poster, sourceID: channel.sourceID, mode: .fit).frame(width: 44, height: 44) }
+                        if let poster = channel.poster { SafeArtwork(url: poster, sourceID: channel.sourceID, mode: .fit, pixelSize: 132).frame(width: 44, height: 44) }
                         else { Image(systemName: "tv").font(.title2).frame(width: 44, height: 44).foregroundStyle(OxaTheme.secondary) }
                         VStack(alignment: .leading, spacing: 5) { Text(channel.title).font(.body.weight(.semibold)); Text(now?.title ?? "Live TV").font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(2) }
                         Spacer(minLength: 0)

@@ -513,7 +513,15 @@ test("corrupt target account cannot commit identity, keys or scope", async () =>
     return settings;
   };
   f.cloud.client = {
-    auth: { stopAutoRefresh: () => {} },
+    auth: {
+      stopAutoRefresh: () => {},
+      getSession: async () => ({
+        data: {
+          session: { user: identity, access_token: "lifecycle-fixture-token" },
+        },
+        error: null,
+      }),
+    },
     rpc: async () => {
       rpc = true;
     },
@@ -563,7 +571,18 @@ test("ready, queue and sync refuse a mismatched account scope", async () => {
   const f = diskCloud();
   let rpc = false;
   f.cloud.client = {
-    auth: { stopAutoRefresh: () => {} },
+    auth: {
+      stopAutoRefresh: () => {},
+      getSession: async () => ({
+        data: {
+          session: {
+            user: f.cloud.identity,
+            access_token: "lifecycle-fixture-token",
+          },
+        },
+        error: null,
+      }),
+    },
     rpc: async () => {
       rpc = true;
     },
@@ -589,11 +608,23 @@ test("same-account password recovery preserves the real on-disk library", async 
   f.cloud.client = {
     auth: {
       stopAutoRefresh: () => {},
+      getSession: async () => ({
+        data: {
+          session: { user: identity, access_token: "recovery-fixture-token" },
+        },
+        error: null,
+      }),
       getUser: async () => ({ data: { user: identity } }),
       updateUser: async () => ({}),
     },
-    rpc: async () => ({
-      data: { records: [], conflicts: [], generation: settings.generation },
+    rpc: () => ({
+      setHeader(header: string, value: string) {
+        assert.equal(header, "Authorization");
+        assert.equal(value, "Bearer recovery-fixture-token");
+        return Promise.resolve({
+          data: { records: [], conflicts: [], generation: settings.generation },
+        });
+      },
     }),
   };
   try {

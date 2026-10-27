@@ -1,63 +1,74 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import http from "node:http";
-import { once } from "node:events";
 import { Provider } from "../src/providers";
 import { uuid } from "../src/model";
 test("Jellyfin, Emby, Plex, WebDAV, direct, M3U, Xtream and mHub contracts", async (t) => {
-  const probe = http.createServer();
-  probe.listen(0, "127.0.0.1");
-  await once(probe, "listening");
-  const port = (probe.address() as any).port;
-  await new Promise<void>((r) => probe.close(() => r()));
   const child = spawn(
     process.env.PYTHON || (process.platform === "win32" ? "python" : "python3"),
-    ["scripts/api-fixture-server.py"],
+    ["-u", "scripts/api-fixture-server.py"],
     {
       cwd: "..",
-      env: { ...process.env, OXA_FIXTURE_PORT: String(port) },
+      env: { ...process.env, OXA_FIXTURE_PORT: "0" },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
-  let startupError: any;
   let diagnostics = "";
-  child.stdout.on("data", (data) => {
-    diagnostics = (diagnostics + data).slice(-8192);
-  });
   child.stderr.on("data", (data) => {
     diagnostics = (diagnostics + data).slice(-8192);
   });
-  child.on("error", (e) => (startupError = e));
   t.after(() => child.kill());
-  const base = `http://127.0.0.1:${port}`;
-  let ready = false;
-  // A cold Python process on a shared Windows ARM runner can take more than
-  // two seconds to start. Bound startup independently of provider/UI timings.
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    if (startupError) throw startupError;
-    if (child.exitCode != null)
-      throw Error(
-        `Protocol fixture exited (${child.exitCode}): ${diagnostics}`,
-      );
-    try {
-      const response = await fetch(base + "/invalid", {
-        signal: AbortSignal.timeout(500),
-      });
-      if (
-        response.status === 200 &&
-        (await response.text()).includes("<html>Login</html>")
-      ) {
-        ready = true;
-        break;
+  const port = await new Promise<number>((resolve, reject) => {
+    // Wait for this exact process to announce its bound ephemeral port. A TCP
+    // probe cannot distinguish a slow child from another process owning a port.
+    const timer = setTimeout(
+      () =>
+        reject(
+          Error(`Protocol fixture did not announce readiness: ${diagnostics}`),
+        ),
+      15000,
+    );
+    const fail = (error: Error) => {
+      clearTimeout(timer);
+      reject(error);
+    };
+    child.once("error", fail);
+    child.once("exit", (code, signal) =>
+      fail(
+        Error(`Protocol fixture exited (${code ?? signal}): ${diagnostics}`),
+      ),
+    );
+    let pending = "";
+    child.stdout.on("data", (data) => {
+      diagnostics = (diagnostics + data).slice(-8192);
+      pending = (pending + data).slice(-8192);
+      let end: number;
+      while ((end = pending.indexOf("\n")) >= 0) {
+        const line = pending.slice(0, end);
+        pending = pending.slice(end + 1);
+        try {
+          const message = JSON.parse(line);
+          if (
+            message.fixtureReady === true &&
+            Number.isInteger(message.port) &&
+            message.port > 0 &&
+            message.port <= 65535
+          ) {
+            clearTimeout(timer);
+            resolve(message.port);
+          }
+        } catch {
+          // Keep non-protocol output as bounded failure diagnostics.
+        }
       }
-    } catch {
-      // Keep waiting only while this exact child is alive.
-    }
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  assert.ok(ready, `local protocol fixture started: ${diagnostics}`);
+    });
+  });
+  const base = `http://127.0.0.1:${port}`;
+  const readiness = await fetch(base + "/invalid", {
+    signal: AbortSignal.timeout(2000),
+  });
+  assert.equal(readiness.status, 200);
+  assert.equal(await readiness.text(), "<html>Login</html>");
   const api = (kind: string, endpoint = base) =>
     new Provider(
       {

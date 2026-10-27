@@ -48,10 +48,10 @@ struct RootView: View {
             .onAppear {
                 guard !consideredAccountWelcome else { return }; consideredAccountWelcome = true
                 let args = ProcessInfo.processInfo.arguments
-                if (!hideAccountWelcome || args.contains("--ui-test-account-welcome")), store.account?.identity == nil, (!args.contains("--ui-test-reset") || args.contains("--ui-test-account-welcome")), !args.contains("--preview-library") { showAccountWelcome = true }
+                if (!hideAccountWelcome || args.contains("--ui-test-account-welcome")), store.account?.identity == nil, (!args.contains("--ui-test-reset") || args.contains("--ui-test-account-welcome")), !store.preview { showAccountWelcome = true }
             }
             .overlay { if store.preparingPlayback { ProgressView("Preparing playback…").padding(24).background(OxaTheme.raised, in: RoundedRectangle(cornerRadius: 20)) } }
-            .onChange(of: scenePhase) { _, phase in if phase != .active { store.save() } else { store.startRefresh(); Task { await store.account?.sync() } } }
+            .onChange(of: scenePhase) { _, phase in if phase != .active { store.saveForBackground() } else { store.startRefresh(); Task { await store.account?.sync() } } }
             .task { store.startRefresh(); while !Task.isCancelled { try? await Task.sleep(for: .seconds(30)); if scenePhase == .active { await store.account?.sync() } } }
     }
 }
