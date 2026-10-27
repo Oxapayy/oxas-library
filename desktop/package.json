@@ -1,0 +1,89 @@
+{
+  "name": "oxas-library-desktop",
+  "productName": "Oxa’s Library",
+  "version": "1.0.0",
+  "description": "Your films, series and live TV in a personal desktop library.",
+  "author": "Oxa",
+  "license": "MIT",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/tests/*.cjs",
+    "start": "npm run build && electron .",
+    "pack:mac": "npm run build && electron-builder --mac --arm64 --x64 --publish never",
+    "pack:win": "npm run build && electron-builder --win --x64 --arm64 --publish never",
+    "test:ui": "playwright test",
+    "format": "prettier --write src tests scripts *.json *.ts",
+    "test:interop": "node scripts/interop.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.118.0",
+    "fast-xml-parser": "5.11.2",
+    "hls.js": "1.7.3",
+    "mpegts.js": "1.8.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.10.1",
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.25.12",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  },
+  "build": {
+    "appId": "app.oxas.library.desktop",
+    "productName": "Oxa’s Library",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/main.cjs",
+      "dist/preload.cjs",
+      "dist/renderer.js",
+      "dist/index.html",
+      "dist/app.css",
+      "assets/icon.png",
+      "package.json",
+      "assets/THIRD-PARTY-NOTICES.txt"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.video",
+      "minimumSystemVersion": "14.0.0",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "Oxas-Library-Desktop-${version}-macOS-${arch}.${ext}",
+      "icon": "assets/icon.icns"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "Oxa-Library-Setup-${version}.${ext}",
+      "signAndEditExecutable": true,
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true
+    },
+    "dmg": {
+      "title": "Oxa’s Library ${version}"
+    }
+  }
+}

@@ -23,18 +23,11 @@ struct AccountView: View {
             } else if let identity = account.identity {
                 Section {
                     Text(identity.email).font(.headline)
-                    if account.needsUnlock {
-                        Text(account.newVault ? "Protect your server connections" : "Unlock your library").font(.title3.weight(.semibold))
-                        Text(account.newVault ? "Create a library password with at least 10 characters. It encrypts your server logins and is needed on new devices." : "Enter the library password used to encrypt your server connections. A wrong password never resets your data.").font(.subheadline).foregroundStyle(OxaTheme.secondary)
-                        SecureField(account.newVault ? "Create library password" : "Library password", text: $libraryPassword).textContentType(account.newVault ? .newPassword : .password)
-                        Button(account.newVault ? "Protect & Sync Library" : "Unlock & Sync") { run { try await account.unlock(password: libraryPassword); libraryPassword = "" } }.disabled(account.busy || libraryPassword.isEmpty)
-                    } else {
-                        LabeledContent("Sync", value: account.syncing ? "Syncing…" : account.unlocked ? "Ready" : "Waiting for connection")
-                        if let date = account.lastSync { LabeledContent("Last synced", value: date.formatted(date: .abbreviated, time: .shortened)) }
-                        if account.pendingCount > 0 { LabeledContent("Pending changes", value: String(account.pendingCount)) }
-                        Button("Sync Now") { run { await account.sync() } }.disabled(account.busy || account.syncing || !account.unlocked)
-                    }
-                } footer: { Text("Sources and encrypted server logins, watchlist and viewing history sync across your devices. Downloaded videos stay on this iPhone. Your server must still be reachable from the current network.") }
+                    LabeledContent("Sync", value: account.syncing ? "Syncing…" : account.unlocked ? "Ready" : "Waiting for connection")
+                    if let date = account.lastSync { LabeledContent("Last synced", value: date.formatted(date: .abbreviated, time: .shortened)) }
+                    if account.pendingCount > 0 { LabeledContent("Pending changes", value: String(account.pendingCount)) }
+                    Button("Sync Now") { run { await account.sync() } }.disabled(account.busy || account.syncing || !account.unlocked)
+                } footer: { Text("Sources and server logins, watchlist and viewing history sync across your devices. Downloaded videos stay on this iPhone. Your server must still be reachable from the current network.") }
                 if let notice = account.message { Section { Text(notice).font(.subheadline).foregroundStyle(OxaTheme.secondary) } }
                 Section {
                     Button("Change Password") { changingPassword = true }.disabled(account.busy || !account.unlocked)
@@ -62,7 +55,7 @@ struct AccountView: View {
                         }
                     }
                 } header: { Text(formTitle) } footer: {
-                    if mode == "signup" || mode == "reset" { Text("Use at least 10 characters. Resetting the account password requires reconnecting your servers; your watchlist and viewing history are kept.") }
+                    if mode == "signup" || mode == "reset" { Text("Use at least 10 characters. Resetting your password keeps your sources, watchlist and viewing history.") }
                     else if mode == "verify" { Text("If registration is available for this address, check your email for a code. Enter the password you used to register.") }
                 }
                 if !account.emailReady {
@@ -121,9 +114,9 @@ struct ChangePasswordView: View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField("Current library password", text: $current).textContentType(.password)
+                    SecureField("Current password", text: $current).textContentType(.password)
                     SecureField("New password", text: $password).textContentType(.newPassword)
-                    Text("Use at least 10 characters. This updates your email password and the password protecting server connections.").font(.subheadline).foregroundStyle(OxaTheme.secondary)
+                    Text("Use at least 10 characters. Your library stays available after a password change.").font(.subheadline).foregroundStyle(OxaTheme.secondary)
                     Button(busy ? "Updating…" : "Update Password") {
                         busy = true
                         Task {

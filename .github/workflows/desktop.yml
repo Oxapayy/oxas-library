@@ -1,0 +1,83 @@
+name: Desktop checks and packages
+on:
+  push:
+    paths: ['desktop/**', '.github/workflows/desktop.yml', 'Config/Cloud.example.json']
+  pull_request:
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Build unsigned desktop installation packages after tests
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - if: runner.os == 'macOS'
+        run: npm run test:interop
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: desktop-test-diagnostics-${{ matrix.os }}
+          path: desktop/test-results/
+          retention-days: 7
+  packages:
+    if: github.event_name == 'workflow_dispatch' && inputs.packages && github.ref == 'refs/heads/main'
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Build hosted client configuration
+        run: npm run build
+        env:
+          OXA_REQUIRE_CLOUD: '1'
+          OXA_CLOUD_URL: ${{ secrets.OXA_CLOUD_URL }}
+          OXA_CLOUD_PUBLIC_KEY: ${{ secrets.OXA_CLOUD_PUBLIC_KEY }}
+      - if: runner.os == 'macOS'
+        run: npx electron-builder --mac --arm64 --x64 --publish never
+      - if: runner.os == 'Windows'
+        run: npx electron-builder --win --x64 --arm64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-packages-${{ runner.os }}
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.exe
+          if-no-files-found: error
+          retention-days: 14

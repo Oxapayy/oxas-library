@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @Environment(AppStore.self) private var store
@@ -54,15 +55,24 @@ struct SettingsView: View {
                 }
             } header: { Text("Optional artwork") } footer: { VStack(alignment: .leading, spacing: 10) { Image("TMDBLogo").resizable().scaledToFit().frame(width: 77, height: 10).accessibilityLabel("The Movie Database"); Text("This product uses the TMDB API but is not endorsed or certified by TMDB.") } }
             Section {
-                Label(store.accountID == nil ? "Local library · No account required" : "Account sync · Encrypted connections", systemImage: "lock")
+                Label(store.accountID == nil ? "Local library · No account required" : "Account sync · Automatic", systemImage: "lock")
                 Label("Credentials stored in Keychain", systemImage: "key")
-                Text("Your local catalog is encrypted. Optional account sync stores viewing history, watchlist and encrypted server connections in your account. No analytics. Downloads stay on this iPhone.").font(.subheadline).foregroundStyle(OxaTheme.secondary)
+                Text("Your local catalog is encrypted. Optional account sync stores viewing history, watchlist and server connections in your account, protected by account access controls. No analytics. Downloads stay on this iPhone.").font(.subheadline).foregroundStyle(OxaTheme.secondary)
                 Text("Interface language: English").font(.subheadline).foregroundStyle(OxaTheme.secondary)
             } header: { Text("Privacy") }
             Section {
+                NavigationLink("Support Oxa") {
+                    Form {
+                        Section { Text("Optional donations help support development. All features stay free.") }
+                        Section("Bitcoin · BTC") { Text("3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV").font(.footnote.monospaced()).textSelection(.enabled); ShareLink("Share Address", item: "3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV"); Button("Copy Address") { UIPasteboard.general.string = "3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV" } }
+                        Section("Litecoin · LTC") { Text("MTToUVnMpepWixDhUPBBG1SgdmxjifArwF").font(.footnote.monospaced()).textSelection(.enabled); ShareLink("Share Address", item: "MTToUVnMpepWixDhUPBBG1SgdmxjifArwF"); Button("Copy Address") { UIPasteboard.general.string = "MTToUVnMpepWixDhUPBBG1SgdmxjifArwF" } }
+                    }.navigationTitle("Support Oxa").scrollContentBackground(.hidden).background(.black)
+                }
+            }
+            Section {
                 if store.preview { Button("Leave Preview Library") { store.leavePreview() } }
                 else { Button("Explore Preview Library") { store.enablePreview(); store.selectedTab = 0 }.disabled(!store.sources.isEmpty) }
-                Text("Version 1.2 · Personal library").font(.caption).foregroundStyle(OxaTheme.secondary)
+                Text("Version 1.3 · Personal library").font(.caption).foregroundStyle(OxaTheme.secondary)
             }
         }.scrollContentBackground(.hidden).background(.black).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline).tint(.white)
             .sheet(item: $editing) { source in SourceEditor(existing: source).environment(store) }

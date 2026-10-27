@@ -2,6 +2,9 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 import json
+import os
+PORT = int(os.environ.get("OXA_FIXTURE_PORT", "8789"))
+ORIGIN = f"http://127.0.0.1:{PORT}"
 from pathlib import Path
 
 class Handler(BaseHTTPRequestHandler):
@@ -15,7 +18,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "video/mp4" if path.endswith(".mp4") or path == "/extensionless-video" else "text/html")
         self.end_headers()
     def website(self, path, query):
-        origin = "http://127.0.0.1:8789"
+        origin = ORIGIN
         if path == "/website/mhub-addon.json":
             return {"id":"fixture-repository","name":"Fixture Library","specVersion":2,"addons":[{"url":"./vod","enabled":True},{"url":"./live","enabled":True},{"url":"./disabled","enabled":False}]}
         if path == "/website/vod/mhub-addon.json":
@@ -48,9 +51,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b'{}')
         if path == "/website/vod/client-fetch":
-            if data.get("id")=="loop": self.send({"clientFetch":{"id":"loop","url":"http://127.0.0.1:8789/public-host-page"}})
+            if data.get("id")=="loop": self.send({"clientFetch":{"id":"loop","url":ORIGIN+"/public-host-page"}})
             elif data.get("id")=="fixture-exchange" and data.get("status")==200 and "fixture public host" in data.get("body",""):
-                self.send({"url":"http://127.0.0.1:8789/test-stream.mp4","format":"mp4","headers":{"Referer":"http://127.0.0.1:8789"},"subtitles":[{"url":"http://127.0.0.1:8789/en.vtt","language":"en"}]})
+                self.send({"url":ORIGIN+"/test-stream.mp4","format":"mp4","headers":{"Referer":ORIGIN},"subtitles":[{"url":ORIGIN+"/en.vtt","language":"en"}]})
             else: self.send({"error":"invalid_fetch"})
         elif path.endswith("/Users/AuthenticateByName"):
             if data.get("Username") == "fixture" and data.get("Pw") == "fixture-password":
@@ -84,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
             result = self.website(unquote(path), query)
             self.send(result,200 if result is not None else 404); return
         if path == "/redirect":
-            self.send_response(302); self.send_header("Location", "http://localhost:8789/target"); self.end_headers(); return
+            self.send_response(302); self.send_header("Location", f"http://localhost:{PORT}/target"); self.end_headers(); return
         if path == "/invalid": self.send(b"<html>Login</html>", mime="text/html"); return
         if path.endswith("/Users/user-1/Items"):
             index = int(query.get("StartIndex", ["0"])[0])
@@ -107,7 +110,7 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "get_series_info": self.send({"episodes":{"1":[{"id":"4","title":"Pilot","episode_num":1,"container_extension":"mp4"}]}})
             else: self.send({},400)
         elif path.endswith("/list.m3u"):
-            self.send(b'#EXTM3U x-tvg-url="guide.xml"\n#EXTINF:-1 tvg-id="fixture-tv" group-title="News",Fixture TV\nhttp://127.0.0.1:8789/live.m3u8\n', mime="audio/x-mpegurl")
+            self.send(('#EXTM3U x-tvg-url="guide.xml"\n#EXTINF:-1 tvg-id="fixture-tv" group-title="News",Fixture TV\n'+ORIGIN+'/live.m3u8\n').encode(), mime="audio/x-mpegurl")
         elif path.endswith("/guide.xml") or path.endswith("/xmltv.php"):
             self.send(b'<tv><programme start="20261026200000 +0100" stop="20261026210000 +0100" channel="fixture-tv"><title>Fixture Program</title></programme></tv>', mime="application/xml")
         else: self.send({},404)
@@ -116,4 +119,4 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         body = b'<d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response><d:response><d:href>/dav/film.mp4</d:href><d:propstat><d:prop><d:displayname>NAS Film</d:displayname></d:prop></d:propstat></d:response></d:multistatus>'
         self.send(body,207,"application/xml")
-ThreadingHTTPServer(("127.0.0.1",8789),Handler).serve_forever()
+ThreadingHTTPServer(("127.0.0.1",PORT),Handler).serve_forever()

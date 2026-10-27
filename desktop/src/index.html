@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Oxa’s Library</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <div class="windowbar" aria-hidden="true"></div>
+    <aside id="sidebar" aria-label="Navigation"></aside>
+    <main id="content" tabindex="-1"></main>
+    <div id="toast" role="status" hidden></div>
+    <dialog id="sheet" aria-label="Library details"></dialog>
+    <dialog id="account" aria-label="Account"></dialog>
+    <section id="player" aria-label="Video player" hidden>
+      <video id="video" crossorigin="anonymous" playsinline></video>
+      <div class="player-top glass">
+        <button id="close-player" aria-label="Close player">×</button>
+        <div>
+          <strong id="player-title"></strong
+          ><small id="player-subtitle"></small>
+        </div>
+        <span class="spacer"></span
+        ><button id="fullscreen" aria-label="Toggle full screen">⛶</button>
+      </div>
+      <div id="playback-error" role="alert" hidden></div>
+      <div id="up-next" class="glass" hidden></div>
+      <div class="player-bottom glass">
+        <div class="timeline">
+          <span id="elapsed">0:00</span
+          ><input
+            id="seek"
+            aria-label="Seek"
+            type="range"
+            min="0"
+            max="1000"
+            value="0"
+          /><span id="duration">0:00</span>
+        </div>
+        <div class="player-buttons">
+          <button id="rewind" aria-label="Rewind 10 seconds">−10</button
+          ><button id="toggle-play">Play</button
+          ><button id="forward" aria-label="Forward 10 seconds">+10</button
+          ><button id="next">Next episode</button><span class="spacer"></span
+          ><label class="compact"
+            >Volume<input
+              id="volume"
+              aria-label="Volume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value="1" /></label
+          ><select id="speed" aria-label="Playback speed">
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option></select
+          ><select id="tracks" aria-label="Audio track"></select
+          ><select id="subtitles" aria-label="Subtitles"></select
+          ><button id="import-caption">Add Subtitles</button
+          ><button id="fit">Fill</button
+          ><button id="pip" aria-label="Picture in Picture">PiP</button>
+        </div>
+      </div>
+    </section>
+    <script src="renderer.js"></script>
+  </body>
+</html>

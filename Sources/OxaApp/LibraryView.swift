@@ -29,6 +29,14 @@ struct LibraryView: View {
                             Label(selectedSource.flatMap { store.source($0)?.name } ?? "All sources", systemImage: "line.3.horizontal.decrease").font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(1)
                         }
                     }.padding(.horizontal, 20)
+                    if !store.newEpisodes.isEmpty {
+                        VStack(spacing: 14) {
+                            SectionHeading(title: "New Episodes")
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(spacing: 16) { ForEach(store.newEpisodes.filter { selectedSource == nil || $0.sourceID == selectedSource }) { item in ResumeCard(media: item, isNew: true).frame(width: 340) } }.padding(.horizontal, 20)
+                            }
+                        }
+                    }
                     if !store.continueWatching.isEmpty {
                         VStack(spacing: 14) {
                             SectionHeading(title: "Continue Watching")
@@ -85,6 +93,7 @@ struct LibraryView: View {
 struct ResumeCard: View {
     @Environment(AppStore.self) private var store
     let media: Media
+    var isNew = false
     var body: some View {
         let progress = store.state.progress[media.id]
         VStack(alignment: .leading, spacing: 0) {
@@ -95,8 +104,10 @@ struct ResumeCard: View {
             VStack(alignment: .leading, spacing: 9) {
                 HStack { Text(media.displayTitle).font(.headline).lineLimit(1); Spacer(); if store.localURL(media) != nil { Image(systemName: "arrow.down.circle.fill").foregroundStyle(OxaTheme.secondary) } }
                 Text(media.kind == .episode ? "\(media.episodeLabel) · \(media.title)" : media.episodeLabel).font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(1)
+                if isNew { Text("Play Episode").font(.subheadline.weight(.semibold)) } else {
                 ProgressView(value: progress?.fraction ?? 0).tint(OxaTheme.accent).accessibilityLabel("Watch progress")
                 HStack { Text(progress?.seconds.clock ?? "0:00"); Spacer(); Text("\(max(0, (progress?.duration ?? 0) - (progress?.seconds ?? 0)).clock) remaining") }.font(.caption).monospacedDigit().foregroundStyle(OxaTheme.secondary)
+                }
             }.padding(16)
         }.background(OxaTheme.surface).clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -118,14 +129,14 @@ struct SearchView: View {
     @State private var remoteBusy = false
     @State private var remoteMessage: String?
     @State private var searchRetry = 0
-    private var results: [Media] { store.catalog.filter { $0.kind != .channel && $0.kind != .folder && (query.isEmpty || "\($0.title) \($0.seriesTitle ?? "") \($0.overview)".localizedCaseInsensitiveContains(query)) }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
+    private var results: [Media] { store.catalog.filter { [.movie, .series].contains($0.kind) && (query.isEmpty || "\($0.title) \($0.seriesTitle ?? "") \($0.overview)".localizedCaseInsensitiveContains(query)) }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } }
     var body: some View {
         ScrollView {
             if remoteBusy { ProgressView("Searching connected libraries…").padding(20) }
             if let remoteMessage { VStack(spacing: 8) { Text(remoteMessage).font(.subheadline).foregroundStyle(OxaTheme.secondary); Button("Retry") { searchRetry += 1 } }.padding(20) }
             if results.isEmpty { EmptyPanel(title: query.isEmpty ? "Find your next watch" : "No matching titles", message: query.isEmpty ? "Connect a source to search your films and series here." : "Try a different title or refresh your media sources.", icon: "magnifyingglass").padding(20) }
             else { LazyVStack(spacing: 18) { ForEach(results) { item in NavigationLink { MediaDetailView(media: item) } label: { MediaRow(media: item) }.buttonStyle(PressStyle()).accessibilityIdentifier("search-result-\(item.providerID)") } }.padding(20) }
-        }.background(.black).navigationTitle("Search").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Films, series and episodes")
+        }.background(.black).navigationTitle("Search").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Films and series")
             .task(id: "\(query):\(searchRetry)") {
                 remoteMessage = nil; remoteBusy = false
                 guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

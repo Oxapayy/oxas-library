@@ -23,7 +23,7 @@ import Supabase
     private var lastPreferences: [String: String]?
     private var operationTask: Task<Void, Never>?
     var pendingCount: Int { journal.pending.count }
-    var unlocked: Bool { key != nil && identity?.id == store?.accountID }
+    var unlocked: Bool { identity != nil && settings != nil && identity?.id == store?.accountID }
     init(store: AppStore) {
         self.store = store
         let config = URLSessionConfiguration.ephemeral
@@ -55,13 +55,10 @@ import Supabase
         do {
             let session = try await client.auth.session
             guard token == epoch, session.user.id == identity.id else { return }
-            if let pending = try Vault().read("pending-wrap-\(identity.id)"), let replacement = try? JSONDecoder().decode(VaultSettings.self, from: pending) { try await finishPendingWrap(replacement) }
-            if let pending = try Vault().read("pending-reset-\(identity.id)"), let reset = try? JSONDecoder().decode(VaultSettings.self, from: pending), let bytes = try Vault().read("cloud-key-\(identity.id)"), let cached = try? JSONDecoder().decode(CachedVaultKey.self, from: bytes), cached.generation == reset.generation { try await finishRecovery(reset, key: SymmetricKey(data: cached.key)); return }
             settings = try await fetchSettings(identity.id)
-            if let settings, let data = try Vault().read("cloud-key-\(identity.id)"), let cached = try? JSONDecoder().decode(CachedVaultKey.self, from: data), cached.generation == settings.generation {
-                key = SymmetricKey(data: cached.key); journal = try store?.disk?.loadNamed("journal-\(identity.id)", as: SyncJournal.self) ?? SyncJournal()
-                needsUnlock = false; await sync()
-            } else { key = nil; needsUnlock = true; newVault = settings == nil; message = "Unlock your encrypted server connections to resume sync." }
+            if let settings, let data = try Vault().read("cloud-key-\(identity.id)"), let cached = try? JSONDecoder().decode(CachedVaultKey.self, from: data), cached.generation == settings.generation { key = SymmetricKey(data: cached.key) }
+            try await attachAccount()
+
         } catch { message = "Account sync is unavailable. Your saved library and downloads remain on this iPhone." }
     }
     private func fetchSettings(_ id: UUID) async throws -> VaultSettings? {
@@ -90,67 +87,40 @@ import Supabase
         guard newPassword.count >= 10 else { throw OxaError.message("Use at least 10 characters.") }
         let session = try await client.auth.verifyOTP(email: email, token: code, type: .recovery)
         let owner = AccountIdentity(id: session.user.id, email: session.user.email ?? email)
-        epoch = UUID(); timer?.cancel(); key = nil; identity = owner
-        let (fresh, freshKey) = try await Task.detached { try CloudCrypto.create(owner: owner.id, password: newPassword) }.value
         _ = try await client.auth.update(user: UserAttributes(password: newPassword))
-        // A durable pending reset survives network loss after the password changes.
-        try Vault().write(JSONEncoder().encode(fresh), key: "pending-reset-\(owner.id)")
-        try cache(freshKey, settings: fresh)
-        try await finishRecovery(fresh, key: freshKey)
-    }
-    private func finishRecovery(_ fresh: VaultSettings, key freshKey: SymmetricKey) async throws {
-        struct Params: Encodable { var new_generation: UUID; var new_salt: String; var new_wrapped_key: String; var new_iterations: Int }
-        try await client.rpc("reset_connection_vault", params: Params(new_generation: fresh.generation, new_salt: fresh.salt, new_wrapped_key: fresh.wrapped_key, new_iterations: fresh.iterations)).execute()
-        try Vault().remove("pending-reset-\(fresh.user_id)")
-        settings = fresh; key = freshKey; needsUnlock = false; newVault = false
-        await store?.downloads.stopForAccountChange()
-        try store?.activateAccount(identity!, mergeGuest: false)
-        // Keep progress/watchlist and downloads; discard only provider connection state.
-        if let store {
-            for source in store.sources { try? store.vault.remove(source.id.uuidString) }
-            store.state.sources = []; store.state.websitePages = []; store.save()
-        }
-        journal = SyncJournal(); journal.generation = fresh.generation; try saveJournal()
-        await sync(); message = "Password updated. Reconnect your media servers; your watchlist and viewing history are retained."
+        try await authenticated(session.user, password: newPassword, merge: false)
+        message = "Password updated. Your sources, watchlist and viewing history are kept."
     }
     private func authenticated(_ user: User, password: String?, merge: Bool) async throws {
         epoch = UUID(); timer?.cancel(); key = nil
         identity = AccountIdentity(id: user.id, email: user.email ?? "Signed-in account")
         initialMerge = merge
-        if let bytes = try Vault().read("pending-reset-\(user.id)"), let reset = try? JSONDecoder().decode(VaultSettings.self, from: bytes), let cachedBytes = try Vault().read("cloud-key-\(user.id)"), let cached = try? JSONDecoder().decode(CachedVaultKey.self, from: cachedBytes), cached.generation == reset.generation {
-            try await finishRecovery(reset, key: SymmetricKey(data: cached.key)); return
+        // Retire incomplete legacy reset operations without deleting any records.
+        try? Vault().remove("pending-reset-\(user.id)")
+        try? Vault().remove("pending-wrap-\(user.id)")
+        settings = try await fetchSettings(user.id)
+        if let settings, let data = try Vault().read("cloud-key-\(user.id)"), let cached = try? JSONDecoder().decode(CachedVaultKey.self, from: data), cached.generation == settings.generation { key = SymmetricKey(data: cached.key) }
+        if key == nil, let settings, let password { key = try? await Task.detached { try CloudCrypto.unlock(settings, password: password) }.value }
+        if settings == nil {
+            let (fresh, _) = try CloudCrypto.create(owner: user.id, password: UUID().uuidString)
+            do { try await client.from("vault_settings").insert(fresh).execute(); settings = fresh }
+            catch { settings = try await fetchSettings(user.id); if settings == nil { throw error } }
         }
-        settings = try await fetchSettings(user.id); newVault = settings == nil
-        if let settings, let data = try Vault().read("cloud-key-\(user.id)"), let cached = try? JSONDecoder().decode(CachedVaultKey.self, from: data), cached.generation == settings.generation { try await attach(key: SymmetricKey(data: cached.key)); return }
-        needsUnlock = true
-        if let password { try await unlock(password: password) }
+        try await attachAccount()
     }
+    // Only used to import a library created by an earlier app version.
     func unlock(password: String) async throws {
-        guard let identity else { return }
-        let unlockedKey: SymmetricKey
-        if let settings {
-            do { unlockedKey = try await Task.detached { try CloudCrypto.unlock(settings, password: password) }.value }
-            catch { throw OxaError.message("This password could not unlock your server connections. Use your library password. Your encrypted data has not been reset.") }
-        } else {
-            let (fresh, created) = try await Task.detached { try CloudCrypto.create(owner: identity.id, password: password) }.value
-            do { try await client.from("vault_settings").insert(fresh).execute(); settings = fresh; unlockedKey = created }
-            catch {
-                // Another device may have initialized the vault. Never overwrite its key.
-                guard let existing = try await fetchSettings(identity.id) else { throw error }
-                settings = existing
-                do { unlockedKey = try await Task.detached { try CloudCrypto.unlock(existing, password: password) }.value }
-                catch { throw OxaError.message("This account already has an encrypted library. Enter its existing library password.") }
-            }
-        }
-        try await attach(key: unlockedKey)
+        guard let settings else { return }
+        key = try await Task.detached { try CloudCrypto.unlock(settings, password: password) }.value
+        try await attachAccount()
     }
     private func cache(_ key: SymmetricKey, settings: VaultSettings) throws {
         try Vault().write(JSONEncoder().encode(settings), key: "cloud-settings-\(settings.user_id)")
         try Vault().write(JSONEncoder().encode(CachedVaultKey(generation: settings.generation, key: key.withUnsafeBytes { Data($0) })), key: "cloud-key-\(settings.user_id)")
     }
-    private func attach(key: SymmetricKey) async throws {
+    private func attachAccount() async throws {
         guard let settings, let identity, let store else { return }
-        self.key = key; try cache(key, settings: settings)
+        if let key { try cache(key, settings: settings) }
         if store.accountID != identity.id { await store.downloads.stopForAccountChange() }
         try store.activateAccount(identity, mergeGuest: initialMerge)
         journal = try store.disk?.loadNamed("journal-\(identity.id)", as: SyncJournal.self) ?? SyncJournal()
@@ -162,7 +132,7 @@ import Supabase
         needsUnlock = false; newVault = false
         // Pull first so imported guest data uses known server revisions.
         await sync()
-        if initialMerge || !journal.initialized { queueLibrary(); journal.initialized = true; try saveJournal(); initialMerge = false; await sync() }
+        if initialMerge || !journal.initialized || store.state.accountSyncFormat != 2 { queueLibrary(); store.state.accountSyncFormat = 2; store.save(); journal.initialized = true; try saveJournal(); initialMerge = false; await sync() }
     }
     func signOut() async throws {
         epoch = UUID(); timer?.cancel(); operationTask?.cancel()
@@ -206,14 +176,10 @@ import Supabase
         return "This account action could not be completed. Check your connection, email, password or verification code and try again."
     }
     func changePassword(current: String, new: String) async throws {
-        guard let settings, let identity else { throw OxaError.message("Sign in and unlock your library first.") }
-        let oldKey: SymmetricKey
-        do { oldKey = try await Task.detached { try CloudCrypto.unlock(settings, password: current) }.value }
-        catch { throw OxaError.message("The current library password is incorrect. Nothing was changed.") }
-        let replacement = try await Task.detached { try CloudCrypto.rewrap(settings, key: oldKey, password: new) }.value
+        guard let identity else { throw OxaError.message("Sign in first.") }
+        guard new.count >= 10 else { throw OxaError.message("Use at least 10 characters.") }
+        _ = try await client.auth.signIn(email: identity.email, password: current)
         _ = try await client.auth.update(user: UserAttributes(password: new))
-        try Vault().write(JSONEncoder().encode(replacement), key: "pending-wrap-\(identity.id)")
-        try await finishPendingWrap(replacement)
     }
     private func finishPendingWrap(_ replacement: VaultSettings) async throws {
         let changed: [VaultSettings] = try await client.from("vault_settings").update(replacement).eq("user_id", value: replacement.user_id).eq("generation", value: replacement.generation).select().execute().value
@@ -225,12 +191,12 @@ import Supabase
         try store?.disk?.saveNamed(journal, name: "journal-\(owner)")
     }
     private func queue<T: Encodable>(_ kind: String, key recordKey: String, value: T, deleted: Bool = false, encrypt: Bool = false) {
-        guard unlocked, let identity, let key, let settings else { return }
+        guard unlocked else { return }
         do {
             let bytes = try JSONEncoder().encode(value)
-            let text = encrypt ? try CloudCrypto.seal(bytes, key: key, owner: identity.id, purpose: "source:\(settings.generation):\(recordKey)") : bytes.base64EncodedString()
+            let text = bytes.base64EncodedString()
             let id = "\(kind):\(recordKey)"
-            journal.pending[id] = CloudChange(kind: kind, key: recordKey, payload: CloudPayload(value: text), deleted: deleted, base_revision: journal.revisions[id] ?? 0)
+            journal.pending[id] = CloudChange(kind: kind, key: recordKey, payload: CloudPayload(value: text, format: kind == "source" ? "account-v2" : nil), deleted: deleted, base_revision: journal.revisions[id] ?? 0)
             try saveJournal(); schedule()
         } catch { message = "Could not queue encrypted library changes. Your local library is still available." }
     }
@@ -261,7 +227,7 @@ import Supabase
         timer = Task { try? await Task.sleep(for: .milliseconds(700)); guard !Task.isCancelled else { return }; await sync() }
     }
     func sync() async {
-        guard !syncing, unlocked, let identity, let key, let settings, let store else { return }
+        guard !syncing, unlocked, let identity, let settings, let store else { return }
         syncing = true; defer { syncing = false }
         let token = epoch
         do {
@@ -291,7 +257,7 @@ import Supabase
                     let changedDuringRequest = pending != nil && pending?.mutationID != sent[record.id]
                     journal.revisions[record.id] = record.revision
                     if changedDuringRequest { journal.pending[record.id]?.base_revision = record.revision; continue }
-                    try apply(record, owner: identity.id, key: key, generation: settings.generation)
+                    try apply(record, owner: identity.id, key: self.key, generation: settings.generation)
                 }
                 for change in batch where journal.pending[change.id]?.mutationID == change.mutationID { journal.pending.removeValue(forKey: change.id) }
                 journal.cursor = cursor; try store.persistSnapshot(); try saveJournal()
@@ -310,7 +276,7 @@ import Supabase
             message = "Could not sync. Local changes are saved and will retry. If your password was reset on another device, sign out and sign in again."
         }
     }
-    private func apply(_ record: CloudRecord, owner: UUID, key: SymmetricKey, generation: UUID) throws {
+    private func apply(_ record: CloudRecord, owner: UUID, key: SymmetricKey?, generation: UUID) throws {
         guard let store else { return }
         if record.kind == "source" {
             guard let sourceID = UUID(uuidString: record.key) else { return }
@@ -319,13 +285,19 @@ import Supabase
                 store.state.sources.removeAll { $0.id == sourceID }; store.state.websitePages?.removeAll { $0.sourceID == sourceID }
                 return
             }
-            let bytes = try CloudCrypto.open(record.payload.value, key: key, owner: owner, purpose: "source:\(generation):\(record.key)")
+            let bytes: Data
+            if record.payload.format == "account-v2" { guard let decoded = Data(base64Encoded: record.payload.value) else { return }; bytes = decoded }
+            else {
+                guard let key else { message = "An older source needs a one-time transfer from a device that already has it. Your saved data is kept."; return }
+                bytes = try CloudCrypto.open(record.payload.value, key: key, owner: owner, purpose: "source:\(generation):\(record.key)")
+            }
             let remote = try JSONDecoder().decode(CloudSource.self, from: bytes)
             guard remote.source.id == sourceID else { throw OxaError.message("Invalid encrypted connection identity.") }
             _ = try URLPolicy.validate(remote.credentials.endpoint, allowHTTP: remote.source.allowHTTP)
             try store.vault.save(remote.credentials, id: sourceID)
             let wasNew = store.source(sourceID) == nil
             store.state.sources.removeAll { $0.id == sourceID }; store.state.sources.append(remote.source)
+            if record.payload.format != "account-v2" { sourceChanged(remote.source) }
             if wasNew { Task { [weak store] in await store?.refresh(remote.source) } }
         } else if record.kind == "progress" || record.kind == "watchlist" {
             guard let bytes = Data(base64Encoded: record.payload.value) else { return }

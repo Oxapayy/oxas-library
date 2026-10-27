@@ -1,0 +1,14 @@
+{
+  "encryptedSource": "qaAtlbOOwJnLvG61EuexuUN5+i7S8mgruFoQWg4\/Y8IFzV5a+iTwA1KgLOfiJM95W9ZA49BIJNlRb\/JPmE5WTWRhJyrmebdhR8mLVkvmT3wPU4SAPwNqh2C1lpZTNVFXz2DxD9\/em7ZhJ2\/4yvdKWM7w0gX1vhC2HSGgj9fEX5iIYlMPNYI55N9CebDt4uqcWb\/F8ASao8LhtExrVdQ76tVrjz152u2p4vDLIGkxmP8d8JkvtNpq6sUrWztGW7pydRQujxAjorsACkAhdzHib6H2AbV8YU09DyG05fUmawmnkEmnGtx0FNNGqMecx+fkM+eZ1UBuMDqFYzlT5qgn\/rERPS6Y4r77WfcigKqpBsnABgSrr67OtDliArAeg9FQyU1mHswSg\/AgP775wlI=",
+  "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "owner": "A1B2C3D4-1111-4222-8333-ABCDEF123456",
+  "password": "Fixture password 27!",
+  "settings": {
+    "generation": "B1B2C3D4-1111-4222-8333-ABCDEF123456",
+    "iterations": 600000,
+    "salt": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+    "user_id": "A1B2C3D4-1111-4222-8333-ABCDEF123456",
+    "wrapped_key": "t3Lra\/GlpS6BQVI7ibLF2fxePrN03+LEWEgdxYVuLsdFRPxyRL1Sefu7AUtICo\/1EPFPsR5pB12awiP2"
+  },
+  "sourcePurpose": "source:B1B2C3D4-1111-4222-8333-ABCDEF123456:A1B2C3D4-1111-4222-8333-ABCDEF123456"
+}

@@ -4,8 +4,9 @@ import CryptoKit
 struct AccountIdentity: Codable { var id: UUID; var email: String }
 struct CloudPayload: Codable {
     var value: String
-    init(value: String) { self.value = value }
-    enum CodingKeys: String, CodingKey { case value }
+    var format: String?
+    init(value: String, format: String? = nil) { self.value = value; self.format = format }
+    enum CodingKeys: String, CodingKey { case value, format }
     init(from decoder: Decoder) throws { value = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(String.self, forKey: .value) ?? "" }
 }
 struct CloudChange: Codable, Identifiable {

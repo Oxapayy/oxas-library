@@ -7,3 +7,5 @@ Third-party Swift package licenses are preserved in `Resources/Licenses/` and bu
 The TMDB logo is an unchanged third-party attribution asset, excluded from the MIT artwork grant. TMDB API use requires the user's own access token and the attribution displayed in Settings. https://www.themoviedb.org/about/logos-attribution
 
 Provider names and trademarks belong to their owners. No affiliation or guaranteed provider availability is claimed. The website uses real iPhone screenshots supplied by the project owner. Film and series artwork and text visible within these screenshots remain the property of their respective owners and are excluded from the MIT asset grant. Screenshots demonstrate the player interface, not bundled media or provider affiliation.
+
+Desktop releases also preserve production JavaScript dependency licenses in `desktop/assets/THIRD-PARTY-NOTICES.txt`, generated from the locked dependencies and included in the app. Electron runtime notices cover Electron, Chromium and their bundled components. The MPEG-TS player is Apache-2.0 licensed; HLS.js is BSD-2-Clause licensed. These third-party components are excluded from the application’s MIT grant.

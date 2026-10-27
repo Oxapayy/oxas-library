@@ -21,6 +21,11 @@ struct SourceEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                if existing == nil {
+                    Section {
+                        Button(busy ? "Importing…" : "Import huhu.to") { kind = .website; endpoint = "https://huhu.to"; name = "huhu.to"; username = ""; password = ""; token = ""; allowHTTP = false; allowInsecureStreams = false; connect() }.disabled(busy).fontWeight(.semibold)
+                    } header: { Text("Quick start") } footer: { Text("One click imports the library. You can also connect your own server below. Only access media you are entitled to use.") }
+                }
                 Section {
                     Picker("Source type", selection: $kind) { ForEach(SourceKind.allCases) { kind in Text(kind.rawValue).tag(kind) } }.disabled(existing != nil).accessibilityIdentifier("source-kind")
                     TextField("Source name", text: $name).textContentType(.none).accessibilityIdentifier("source-name")
@@ -43,9 +48,6 @@ struct SourceEditor: View {
                 } footer: { Text(allowHTTP ? "HTTP does not encrypt your login or media traffic. Use it only on a trusted local network. Internet addresses require HTTPS." : "HTTPS verifies your server and encrypts the connection. Enable local HTTP only if your home server needs it.") }
                 if [.website, .m3u, .xtream, .direct].contains(kind) {
                     Section { Toggle("Allow HTTP streams", isOn: $allowInsecureStreams).tint(OxaTheme.accent) } footer: { Text("Some live-TV providers use unencrypted media links. Enable only if you trust the source. Server login and catalog requests still require HTTPS outside your home network.") }
-                }
-                if kind == .website && existing == nil {
-                    Section { Button("Use huhu.to") { endpoint = "https://huhu.to"; name = "huhu.to" } } footer: { Text("Suggested library URL. You can connect your own Jellyfin, Plex or another supported source instead. Stream availability depends on the provider.") }
                 }
                 if let message { Section { Text(message).foregroundStyle(.white).font(.subheadline).accessibilityIdentifier("source-error") } }
                 Section { Text("Watch history and favorites stay on this iPhone unless you enable optional account sync.").font(.footnote).foregroundStyle(OxaTheme.secondary) }

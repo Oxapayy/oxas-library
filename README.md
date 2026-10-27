@@ -2,13 +2,13 @@
 
 An open-source, English-only iPhone app for your personal films, series and live TV. Connect sources you are authorized to use, resume episodes and save supported media offline.
 
-[Download for iOS](https://github.com/Oxapayy/oxas-library/releases/latest) · [Website](https://oxas-library.netlify.app) · [Report an issue](https://github.com/Oxapayy/oxas-library/issues)
+[Download for iOS](https://github.com/Oxapayy/oxas-library/releases/tag/v1.2.0) · [Website](https://oxas-library.netlify.app) · [Report an issue](https://github.com/Oxapayy/oxas-library/issues)
 
 ## iOS release
 
 The release asset is **Oxas-Library-v1.2.0-iOS-unsigned.ipa**. It requires iOS 18 or later. Import it into ESign or another sideloading tool, sign using your own valid certificate and provisioning profile, then install. No certificate/profile is supplied. Use the same bundle identifier and signing identity when updating to retain local data and Keychain access.
 
-macOS and Windows are **coming soon**. The current native app targets iPhone.
+The shared macOS and Windows client source is in `desktop/`. Desktop installation packages are being prepared; the iOS release above remains available.
 
 ## What it does
 
@@ -37,9 +37,9 @@ HTTPS is required for public server/API connections. Trusted local HTTP can be e
 
 ## Privacy and sync
 
-Local snapshots and journals use AES-GCM with a device-only Keychain key. Provider credentials are namespaced per account. Cloud source credentials are encrypted on-device with an AES-GCM random key wrapped using password-derived PBKDF2-SHA256; owner, record and generation are authenticated. RLS restricts records to their owner. Viewing metadata is not end-to-end encrypted; cloud identifiers are opaque hashes and playback URLs/headers/local paths are omitted.
+Local snapshots and journals use AES-GCM with a device-only Keychain key. Provider credentials are namespaced per account. Account sync transfers source credentials over HTTPS and restricts database access to the signed-in owner with RLS. Server credentials are no longer end-to-end encrypted or tied to the account password. Local device encryption remains enabled. Viewing metadata uses opaque cloud identifiers and omits playback URLs/headers/local paths.
 
-A normal password change rewraps the same key. **Password recovery resets encrypted server connections** and requires reconnecting them; watchlist/history are retained. Account sync does not make a home server reachable remotely. Offline edits use a durable outbox and per-record server revisions. Downloads are never uploaded. No analytics SDK is included.
+Password changes and recovery preserve sources, watchlist and history. Updating an existing device migrates its readable legacy connections automatically. Older encrypted connections that are absent locally cannot be recovered without their original password/key; their records are preserved, never reset automatically. Account sync does not make a home server reachable remotely. Offline edits use a durable outbox and per-record server revisions. Downloads are never uploaded. No analytics SDK is included.
 
 ## Build and test
 
@@ -67,6 +67,23 @@ Fixture credentials are local examples. The generated 24-second video in `script
 
 This repository contains the client application, not the hosted backend implementation, database migrations or email-service configuration. Account services are optional. A source build works in guest mode by default. Copy `Config/Cloud.example.json` to `Config/Cloud.local.json` and supply an HTTPS project URL and public publishable/anonymous client key for your compatible account deployment. For iOS, also copy this private file to `Resources/Cloud.local.json` before generating the Xcode project. Both local files are ignored by Git. The desktop build also accepts `OXA_CLOUD_URL` and `OXA_CLOUD_PUBLIC_KEY` environment variables. Never use service-role, SMTP or administrator keys. Hosted release binaries necessarily contain their public connection values; these are not secret credentials.
 
+### Desktop source builds
+
+Use Node.js 24 and npm. The account backend is optional and excluded from this repository; a clean clone runs in guest mode. The same private `Config/Cloud.local.json` described above can configure a compatible account deployment.
+
+```sh
+cd desktop
+npm ci
+npm run typecheck
+npm test
+npm run test:ui
+npm start
+```
+
+Build macOS packages on macOS with `npm run pack:mac`; build the combined x64/ARM64 Windows installer on Windows with `npm run pack:win`. The desktop GitHub Actions workflow tests macOS Apple Silicon/Intel and Windows x64/ARM64. Its manual package job uses privately stored public client connection values for official hosted builds. No backend implementation or administrator credentials are packaged.
+
+macOS packages target version 14 and later. Windows packages target Windows 10/11 on x64 and ARM64. Releases have no publisher signing certificate or Apple notarization. macOS uses technical ad-hoc signing. Platform installation warnings are expected. Compatible codecs and source access still depend on the server; no universal provider or format claim is made.
+
 The website is plain HTML/CSS/JavaScript in `website/`; `netlify.toml` publishes that folder. It uses real iPhone screenshots supplied by the project owner, an interactive screenshot selector and full-size viewer, keyboard-accessible platform tabs, requested translucent glass materials and reduced-motion/transparency fallbacks.
 
 ## License and attribution
@@ -74,3 +91,10 @@ The website is plain HTML/CSS/JavaScript in `website/`; `netlify.toml` publishes
 [MIT](LICENSE) for application code and original assets. Third-party package licenses and the TMDB brand-asset exception are listed in [NOTICE.md](NOTICE.md). Optional TMDB metadata uses the user's own API read token and displays required attribution. Protocol reference: [mHub v2](https://github.com/MediaHubMX/protocol). Native playback/offline reference: [Apple AVFoundation](https://developer.apple.com/documentation/avfoundation/using-avfoundation-to-play-and-persist-http-live-streams).
 
 Please report reproducible issues with app version, iOS version, provider type and error text. Never include credentials, access tokens or private stream URLs.
+
+## Support development
+
+Donations are optional. All app features remain free. Use the matching network.
+
+- Bitcoin (BTC): `3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV`
+- Litecoin (LTC): `MTToUVnMpepWixDhUPBBG1SgdmxjifArwF`

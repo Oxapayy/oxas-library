@@ -61,6 +61,38 @@ import AVFoundation
             return seen.insert(identity).inserted ? item : nil
         }
     }
+    var newEpisodes: [Media] {
+        var seen: Set<String> = []
+        return Media.ordered(catalog.filter { (state.newEpisodeIDs ?? []).contains($0.id) && (state.progress[$0.id]?.seconds ?? 0) == 0 }).filter { seen.insert("\($0.sourceID):\($0.seriesID ?? $0.id)").inserted }
+    }
+    private func checkNewEpisodes(_ source: MediaSource, context: UUID) async {
+        let watched = catalog.filter { $0.sourceID == source.id && $0.kind == .episode && (state.progress[$0.id]?.seconds ?? 0) > 0 }
+        let seriesIDs = Set(watched.compactMap(\.seriesID))
+        for series in Array(catalog.filter { $0.sourceID == source.id && $0.kind == .series && seriesIDs.contains($0.providerID) }.prefix(100)) {
+            do {
+                var episodes: [Media]
+                let api = try api(source.id)
+                if source.kind == .website {
+                    let client = WebsiteLibrary(source: api.source, endpoint: api.base)
+                    let connection = try await client.discover()
+                    let detail = try await client.details(series, connection: connection)
+                    episodes = detail.episodes
+                    for season in (detail.media.websiteItem?.seasons ?? []) { episodes += try await client.season(detail.media, number: season.number, connection: connection) }
+                } else if source.kind == .xtream { episodes = try await api.episodes(series) }
+                else { episodes = self.episodes(series) }
+                guard context == libraryEpoch else { return }
+                let key = "\(source.id):\(series.providerID)"
+                let prior = state.followedSeries?[key] ?? Set(self.episodes(series).map(\.id))
+                let last = watched.filter { $0.seriesID == series.providerID }.map { ($0.season ?? 0) * 100000 + ($0.episode ?? 0) }.max() ?? 0
+                let added = episodes.filter { !prior.contains($0.id) && (state.progress[$0.id]?.seconds ?? 0) == 0 && (($0.season ?? 0) * 100000 + ($0.episode ?? 0) > last || $0.episode == nil) }
+                state.newEpisodeIDs = (state.newEpisodeIDs ?? []).union(added.map(\.id))
+                if state.followedSeries == nil { state.followedSeries = [:] }
+                state.followedSeries?[key] = prior.union(episodes.map(\.id))
+                mergeMedia(episodes)
+            } catch { /* A failed check keeps the last successful episode state. */ }
+        }
+        save()
+    }
     func media(_ id: String) -> Media? { state.media.first { $0.id == id } ?? state.transfers.first { $0.id == id }?.media }
     func source(_ id: UUID) -> MediaSource? { sources.first { $0.id == id } }
     func persistSnapshot() throws {
@@ -105,6 +137,13 @@ import AVFoundation
             var client = try api(source.id)
             var freshSource = client.source; freshSource.websiteConnection = nil
             client = MediaAPI(source: freshSource, credentials: client.credentials)
+            if state.followedSeries == nil { state.followedSeries = [:] }
+            for item in catalog where item.sourceID == source.id && item.kind == .episode && (state.progress[item.id]?.seconds ?? 0) > 0 {
+                if let seriesID = item.seriesID {
+                    let key = "\(source.id):\(seriesID)"
+                    if state.followedSeries?[key] == nil { state.followedSeries?[key] = Set(catalog.filter { $0.sourceID == source.id && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)) }
+                }
+            }
             var result = try await client.catalog()
             guard context == libraryEpoch, self.source(source.id) != nil else { return }
             reconcileCloudMetadata(result.media)
@@ -126,6 +165,7 @@ import AVFoundation
             }
             state.websitePages = (state.websitePages ?? []).filter { $0.sourceID != source.id } + result.websitePages
             notices[source.id] = result.warning; save()
+            await checkNewEpisodes(source, context: context)
         } catch { guard context == libraryEpoch else { return }; notices[source.id] = "Could not refresh \(source.name). Cached titles are still available. \(safeMessage(error))" }
     }
     private var refreshTask: Task<Void, Never>?
@@ -329,6 +369,12 @@ import AVFoundation
     }
     func record(_ item: Media, seconds: Double, duration: Double, ended: Bool = false) {
         guard !preview, item.kind != .channel, seconds.isFinite else { return }
+        if item.kind == .episode, let seriesID = item.seriesID {
+            if state.followedSeries == nil { state.followedSeries = [:] }
+            let key = "\(item.sourceID):\(seriesID)"
+            if state.followedSeries?[key] == nil { state.followedSeries?[key] = Set(catalog.filter { $0.sourceID == item.sourceID && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)) }
+            state.newEpisodeIDs?.remove(item.id)
+        }
         state.progress[item.id] = WatchProgress(seconds: seconds, duration: duration.isFinite && duration > 0 ? duration : item.duration, completed: ended)
         save(); account?.progressChanged(item)
     }

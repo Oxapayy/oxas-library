@@ -103,6 +103,9 @@ struct Preferences: Codable {
     var externalMetadata = false
 }
 struct LibrarySnapshot: Codable {
+    var accountSyncFormat: Int?
+    var followedSeries: [String: Set<String>]?
+    var newEpisodeIDs: Set<String>?
     var sources: [MediaSource] = []
     var media: [Media] = []
     var progress: [String: WatchProgress] = [:]
