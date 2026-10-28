@@ -11,8 +11,9 @@ const normalized = (raw: string) => {
 };
 const isHuhu = (source: Source, credentials: Credentials) => source.kind === 'Library URL' && normalized(credentials?.endpoint || '') === 'https://huhu.to';
 const mediaURL = (raw: string) => {
-  try { const u = new URL(raw, location.origin); return u.origin === location.origin && u.pathname === '/web/api/media' && !!u.searchParams.get('token'); } catch { return false; }
+  try { const u = new URL(raw, location.origin); return u.origin === location.origin && u.pathname === '/web/api/media' && !!u.searchParams.get('token') || u.protocol === 'https:' && u.hostname === 'image.tmdb.org'; } catch { return false; }
 };
+const directURL = (raw: string) => { try { return new URL(raw).protocol === 'https:'; } catch { return false; } };
 
 class BrowserEngine {
   disk = new BrowserDisk('oxa-web-v1', () => this.changed());
@@ -238,7 +239,7 @@ class BrowserEngine {
       m = selected.media; choice = selected.choice;
     }
     const result = await this.rpc(m.sourceID, 'playback', { media: m, choice, subtitleLanguage: this.disk.state.preferences.subtitleLanguage }); check();
-    if (!mediaURL(result.url)) throw Error('The playback server returned an unsupported browser address.');
+    if (!(result.direct ? directURL(result.url) : mediaURL(result.url))) throw Error('The playback server returned an unsupported browser address.');
     this.merge([result.media]); this.active = { media: result.media, choice: result.choice || choice };
     this.disk.save();
     return { ...result, headers: undefined, media: this.getProjection().wire(result.media), resume: this.disk.state.progress[m.id]?.completed ? 0 : this.disk.state.progress[m.id]?.seconds || 0 };

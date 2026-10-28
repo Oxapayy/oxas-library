@@ -33,11 +33,12 @@ if account:
         raise RuntimeError('Use an HTTPS public account endpoint.')
     origin = ' https://' + parsed.netloc
 marketing = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
-app = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'" + origin + "; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+app = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://image.tmdb.org; media-src 'self' blob: https:; connect-src 'self'" + origin + " https:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 rows = []
 for route in ['/', '/index.html', '/404.html', '/assets/*', '/styles.css', '/app.js']:
     rows += [route, '  Content-Security-Policy: ' + marketing, '']
 for route in ['/web', '/web/*']:
-    rows += [route, '  Content-Security-Policy: ' + app, '  Cache-Control: public, max-age=0, must-revalidate', '']
+    # Video servers often refuse foreign referrers but accept none.
+    rows += [route, '  Content-Security-Policy: ' + app, '  Cache-Control: public, max-age=0, must-revalidate', '  Referrer-Policy: no-referrer', '']
 (publish / '_headers').write_text('\n'.join(rows))
 print('Prepared browser app, clean routes and distinct security policies.')

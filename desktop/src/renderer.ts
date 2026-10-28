@@ -108,13 +108,16 @@ const button = (
   primary = false,
 ) =>
   `<button type="button" ${primary ? 'class="primary"' : ""} data-action="${esc(action)}" data-args="${esc(JSON.stringify(args))}">${esc(label)}</button>`;
-function allowedMediaURL(raw: string, caption = false) {
+function allowedMediaURL(raw: string, caption = false, direct = false) {
   if (typeof raw !== "string" || !raw) return false;
   if (!webMode) return raw.startsWith("oxa://");
   try {
     const url = new URL(raw, location.href);
     if (caption && url.protocol === "blob:")
       return url.origin === location.origin;
+    // Web playback and TMDB artwork load straight from their HTTPS servers.
+    if (!caption && url.protocol === "https:" && (direct || url.hostname === "image.tmdb.org"))
+      return true;
     return (
       url.origin === location.origin &&
       (url.pathname === "/web/api/media" ||
@@ -509,9 +512,26 @@ function accountForm(mode = "signin") {
       : `<p>${esc(mode === "signin" ? "Sign in to bring your connections, watchlist and progress to this device. Your account is optional." : mode === "verify" ? "Enter the code from your email." : mode === "delete" ? "This permanently deletes your Oxa account and synced library data. Re-enter your password to confirm." : mode === "reset" ? "Your sources, watch history and watchlist are kept after a password reset." : mode === "unlock" ? "Use your account password to decrypt your synced server connections." : "")}</p><form id="account-form">${["signin", "signup", "forgot", "verify"].includes(mode) ? `<label>Email<input name="email" type="email" required autocomplete="email" value="${esc(accountEmail)}"></label>` : ""}${mode === "verify" ? '<label>Verification code<input name="code" required inputmode="numeric" autocomplete="one-time-code"></label>' : mode !== "forgot" ? `<label>${mode === "reset" || mode === "password" ? "New password" : "Password"}<input name="password" type="password" required ${["signup", "reset", "password"].includes(mode) ? 'minlength="10" autocomplete="new-password"' : 'autocomplete="current-password"'}></label>` : ""}${["signin", "signup"].includes(mode) ? '<label class="check"><input name="includeGuest" type="checkbox" checked>Include this device’s guest library in my account</label>' : ""}<p class="form-error error" role="alert"></p><button class="primary" type="submit">${mode === "signin" ? "Sign In" : mode === "signup" ? "Create Account" : mode === "forgot" ? "Send Recovery Code" : mode === "verify" ? "Verify Code" : mode === "delete" ? "Permanently Delete Account" : "Continue"}</button>${mode === "signin" ? `${button("Create Account", "account.mode", { mode: "signup" })}${button("Forgot Password?", "account.mode", { mode: "forgot" })}<label class="check"><input id="hide-welcome" type="checkbox" ${state.hideWelcome ? "checked" : ""}>Don’t show this message again</label>${button("Continue as Guest", "account.guest")}` : mode === "verify" ? button("Resend Registration Code", "account.resend") : button("Back to Sign In", "account.mode", { mode: "signin" })}</form>`);
   if (!d.open) d.showModal();
 }
+// Many hosted servers block browser playback; the native apps can still play them.
+const appHint = () =>
+  `<p class="info app-hint">Some servers only play in the Oxa’s Library app. <a href="/#downloads" target="_blank" rel="noopener">Get it for iPhone, Mac or Windows</a></p>`;
 async function start(args: any, operation = "play") {
   if (!downloadsEnabled && operation === "download") return;
-  const result = await cmd(operation, args);
+  let result: any;
+  try {
+    result = await cmd(operation, args);
+  } catch (e: any) {
+    if (!webMode || !args.choiceID || !$("#sheet").open) throw e;
+    let note = $("#sheet .playback-note");
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "playback-note";
+      $("#sheet .sources-choices")?.before(note);
+    }
+    note.innerHTML = `<p class="error" role="alert">${esc(e.message || "This server can’t play in a browser.")}</p>${appHint()}`;
+    note.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    return;
+  }
   if (!result) return;
   if (result.choices) {
     sheet(
@@ -560,7 +580,7 @@ function destroyPlayer() {
   video.querySelectorAll("track").forEach((e) => e.remove());
 }
 async function showPlayer(result: any) {
-  if (webMode && !allowedMediaURL(result.url))
+  if (webMode && !allowedMediaURL(result.url, false, result.direct === true))
     throw Error(
       "This playback source is unavailable. Choose another server or refresh the source.",
     );
@@ -628,8 +648,12 @@ async function showPlayer(result: any) {
 }
 function playError() {
   $("#playback-error").hidden = false;
-  $("#playback-error").textContent =
-    "This video could not be played. Check your connection, media format and the source server. Try another playback server if one is available.";
+  if (webMode)
+    $("#playback-error").innerHTML =
+      `<p>This server doesn’t allow playback in a browser. Close the player and try another server.</p>${appHint()}`;
+  else
+    $("#playback-error").textContent =
+      "This video could not be played. Check your connection, media format and the source server. Try another playback server if one is available.";
 }
 function tracks() {
   const audio = hls?.audioTracks || [],

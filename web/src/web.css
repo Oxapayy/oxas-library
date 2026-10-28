@@ -270,3 +270,10 @@ body.web-app {
     border-color: #aaa;
   }
 }
+.web-app .playback-note {
+  margin-bottom: 12px;
+}
+.web-app .app-hint a {
+  color: #fff;
+  text-decoration: underline;
+}

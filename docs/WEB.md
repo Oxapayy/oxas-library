@@ -26,14 +26,14 @@ The hosted gateway implementation is intentionally private and excluded from thi
 
 - `POST /web/api/provider`: JSON containing an operation, current source/credentials and the relevant media, choice, season, page or search query. Supported operations are catalog, detail, episodes, sources, playback, page, search and opt-in metadata search. Replies contain result, source, credentials and an original-artwork-URL to opaque-capability-URL mapping.
 - `POST /web/api/artwork`: current source/credentials and a bounded list of artwork URLs; returns opaque same-origin URLs.
-- `GET/HEAD /web/api/media?token=…`: short-lived encrypted capability for approved artwork, HLS playlists/segments or validated bounded progressive byte ranges.
+- `GET/HEAD /web/api/media?token=…`: short-lived encrypted capability for approved non-TMDB artwork only. TMDB artwork loads directly from `image.tmdb.org`.
 - `GET/HEAD /web/api/caption?token=…`: approved subtitle capability, served as VTT.
 
 The browser never forwards its Oxa bearer token to a library provider. Provider-assisted resolution remains a separate source permission. Gateway credentials/signing keys and implementation belong outside static output and public Git. The installed website's server code is not part of a client-only build.
 
 ## Browser limits
 
-Reachable HTTPS sources, supported codecs and server byte-range/HLS behavior determine playback availability. A hosted gateway cannot reach a private home LAN. Plain HTTP LAN sources belong in the native app. Continuous raw MPEG-TS relaying needs a persistent streaming host; the serverless web player reports an actionable compatibility error instead of truncating a long stream. A successful catalog import does not guarantee a given playback server works.
+Video never passes through the gateway: a playback reply carries the playback server's own HTTPS address and the browser loads it directly. Playback therefore needs an HTTPS server that a browser may load from another website (CORS for HLS), does not require its own Referer, and does not bind its address to the IP that resolved it. Many hosted file servers fail one of these; the web app then says so and links to the native apps. Supported codecs determine the rest. A hosted gateway cannot reach a private home LAN. Plain HTTP LAN sources belong in the native app. Raw MPEG-TS/FLV live streams need HLS in a browser. A successful catalog import does not guarantee a given playback server works.
 
 The browser stores metadata and account state, not offline video files. Clearing website data removes that browser's local guest profile; a signed-in account can restore its synced library. Failed writes retain dirty changes and show Retry Saving. Password recovery keeps connections, history and watchlist. Closing the web player waits for its progress checkpoint before the close visibly completes.
 
