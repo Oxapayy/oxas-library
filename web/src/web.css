@@ -277,3 +277,21 @@ body.web-app {
   color: #fff;
   text-decoration: underline;
 }
+.web-app .sources-choices .server-link {
+  display: block;
+  color: #fff;
+  text-decoration: none;
+  background: #222;
+  padding: 18px 20px;
+  border-radius: 15px;
+  transition: background 0.15s, transform 0.12s;
+}
+.web-app .sources-choices .server-link:hover {
+  background: #383838;
+}
+.web-app .sources-choices .server-link:active {
+  transform: scale(0.97);
+}
+.web-app .sources-choices .server-link small {
+  margin-top: 6px;
+}

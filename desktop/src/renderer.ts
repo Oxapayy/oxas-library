@@ -515,6 +515,23 @@ function accountForm(mode = "signin") {
 // Many hosted servers block browser playback; the native apps can still play them.
 const appHint = () =>
   `<p class="info app-hint">Some servers only play in the Oxa’s Library app. <a href="/#downloads" target="_blank" rel="noopener">Get it for iPhone, Mac or Windows</a></p>`;
+// The web version opens a server on its own hosting page in a new tab.
+function hostPage(c: any) {
+  if (!webMode || typeof c.pageURL !== "string") return "";
+  try {
+    const url = new URL(c.pageURL);
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+function serverChoice(c: any, action: string, args: any) {
+  const label = `<strong>${esc(c.name || c.providerName || "Server")}</strong><small>${esc([c.quality, c.languages?.join(", "), c.providerName].filter(Boolean).join(" · "))}</small>`;
+  const page = hostPage(c);
+  return page
+    ? `<a class="server-link" href="${esc(page)}" target="_blank" rel="noopener noreferrer">${label}<small>Opens on ${esc(new URL(page).hostname)} ↗</small></a>`
+    : `<button data-action="${action}" data-args="${esc(JSON.stringify({ ...args, choiceID: c.id }))}">${label}</button>`;
+}
 async function start(args: any, operation = "play") {
   if (!downloadsEnabled && operation === "download") return;
   let result: any;
@@ -536,12 +553,9 @@ async function start(args: any, operation = "play") {
   if (result.choices) {
     sheet(
       "Sources",
-      `<p>Choose a playback server. Your watch progress is kept.</p><div class="sources-choices">${result.choices
+      `<p>${result.choices.some(hostPage) ? "Choose a server. It opens on its hosting site in a new tab." : "Choose a playback server. Your watch progress is kept."}</p><div class="sources-choices">${result.choices
         .filter((c: any) => c.kind !== "website")
-        .map(
-          (c: any) =>
-            `<button data-action="${operation}" data-args="${esc(JSON.stringify({ ...args, choiceID: c.id }))}"><strong>${esc(c.name || c.providerName || "Server")}</strong><small>${esc([c.quality, c.languages?.join(", "), c.providerName].filter(Boolean).join(" · "))}</small></button>`,
-        )
+        .map((c: any) => serverChoice(c, operation, args))
         .join("")}</div>${providerAssistance(result.media?.sourceID)}`,
     );
     return;
@@ -712,7 +726,7 @@ async function next() {
   if (r.choices) {
     sheet(
       "Next Episode",
-      `<div class="sources-choices">${r.choices.map((c: any) => button(c.name || "Server", "play", { id: r.media.id, choiceID: c.id })).join("")}</div>${providerAssistance(r.media?.sourceID)}`,
+      `<div class="sources-choices">${r.choices.map((c: any) => (hostPage(c) ? serverChoice(c, "play", { id: r.media.id }) : button(c.name || "Server", "play", { id: r.media.id, choiceID: c.id }))).join("")}</div>${providerAssistance(r.media?.sourceID)}`,
     );
   } else await showPlayer(r);
 }

@@ -230,7 +230,7 @@ class BrowserEngine {
       if (!choiceID) {
         const result = await this.rpc(m.sourceID, 'sources', { media: m }); check(); this.merge([result.media]);
         this.choices.clear();
-        const choices = (result.sources || []).map(c => { const key = uuid(); this.choices.set(key, { mediaID: m.id, media: result.media, choice: c }); return { id: key, name: c.name, kind: c.kind, providerName: c.providerName, languages: c.languages, quality: c.quality }; });
+        const choices = (result.sources || []).map(c => { const key = uuid(); this.choices.set(key, { mediaID: m.id, media: result.media, choice: c }); return { id: key, name: c.name, kind: c.kind, providerName: c.providerName, languages: c.languages, quality: c.quality, pageURL: directURL(c.url) ? c.url : undefined }; });
         if (!choices.length) throw Error('No playback server is currently available for this title.');
         return { choices, media: this.getProjection().wire(result.media) };
       }
