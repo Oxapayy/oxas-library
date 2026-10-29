@@ -1,0 +1,28 @@
+# Oxa’s Library
+
+> Oxa’s Library is a free, open-source media player app for films, series and live TV. It brings the media from your own sources into one personal library on iPhone, Mac, Windows and the web. It has no ads, no subscriptions and no tracking. It does not include any films or channels itself.
+
+## What it does
+
+- Connects Jellyfin, Plex, Emby, WebDAV, direct video URLs, mHub library URLs, M3U playlists and Xtream Codes providers.
+- Shows several sources together in one library with Continue Watching, New Episodes and a watchlist.
+- Resumes playback at the same second on another device when you sign in with the optional email account.
+- Works as an IPTV player with channel groups, favorites, channel search and an XMLTV program guide.
+- Saves single episodes or whole seasons for offline viewing in the iPhone, Mac and Windows apps.
+- Offers English and German audio and subtitle preferences, Picture in Picture and next-episode autoplay.
+
+## Platforms and downloads
+
+- iPhone: version 1.3.1, iOS 18 or later, unsigned IPA installed with ESign or AltStore Classic.
+- Mac: version 1.0.1, macOS 14 or later, Apple Silicon and Intel.
+- Windows: version 1.0.1, Windows 10 or 11, x64 and ARM64.
+- Web: https://oxapay.cc/web in Chrome, Safari, Edge or Firefox.
+
+## Links
+
+- [Website](https://oxapay.cc/)
+- [Download page](https://oxapay.cc/download)
+- [Web app](https://oxapay.cc/web)
+- [Source code on GitHub](https://github.com/Oxapayy/oxas-library) (MIT licence)
+- [Privacy Policy](https://oxapay.cc/privacy)
+- [Terms of Service](https://oxapay.cc/terms)

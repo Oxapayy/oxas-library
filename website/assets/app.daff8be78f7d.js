@@ -20,7 +20,7 @@ if (card) {
 if (card && hero) {
   hero.href = card.querySelector('.button').href;
   hero.textContent = heroLabels[card.dataset.platform];
-  // The web card's browser link already sits beside the hero button.
+  // The web card's browser button already sits beside the hero button.
   if (card.dataset.platform === 'web') hero.nextElementSibling.hidden = true;
 }
 

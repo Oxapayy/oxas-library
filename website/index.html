@@ -6,11 +6,29 @@
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="description" content="Oxa’s Library gathers the films, series and live TV you already have into one personal library. Free and open source for iPhone, Mac, Windows and the web.">
-<title>Oxa’s Library — Your films, series and live TV in one library</title>
+<meta name="description" content="Oxa’s Library is a free, open-source app that brings the films, series and live TV from your own sources into one library on iPhone, Mac, Windows and the web.">
+<link rel="canonical" href="https://oxapay.cc/">
+<meta name="keywords" content="free movie app, free series app, watch films and series, live TV app, IPTV player, M3U player, Xtream Codes player, EPG program guide, Jellyfin client, Plex client, Emby client, WebDAV video player, media library app, watchlist, continue watching, offline downloads, open source media player, iPhone, Mac, Windows, web app">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Oxa’s Library">
+<meta property="og:title" content="Oxa’s Library — Free app for films, series and live TV">
+<meta property="og:description" content="Oxa’s Library is a free, open-source app that brings the films, series and live TV from your own sources into one library on iPhone, Mac, Windows and the web.">
+<meta property="og:url" content="https://oxapay.cc/">
+<meta property="og:image" content="https://oxapay.cc/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Oxa’s Library logo beside the app’s library on a Mac">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Oxa’s Library — Free app for films, series and live TV">
+<meta name="twitter:description" content="Oxa’s Library is a free, open-source app that brings the films, series and live TV from your own sources into one library on iPhone, Mac, Windows and the web.">
+<meta name="twitter:image" content="https://oxapay.cc/assets/og-image.png">
+<link rel="apple-touch-icon" href="/assets/icon.png"><!-- /share -->
+<script type="application/ld+json">[{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Oxa’s Library","description":"A free, open-source media player that brings the films, series and live TV from your own sources (Jellyfin, Plex, Emby, WebDAV, M3U, Xtream Codes and mHub libraries) into one library with Continue Watching, a watchlist, new episodes, offline downloads and an IPTV program guide.","applicationCategory":"MultimediaApplication","operatingSystem":"iOS 18, macOS 14, Windows 10, Windows 11, Web","url":"https://oxapay.cc/","downloadUrl":"https://oxapay.cc/download","image":"https://oxapay.cc/assets/og-image.png","screenshot":"https://oxapay.cc/assets/screens/mac-library.jpg","license":"https://opensource.org/licenses/MIT","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"sameAs":["https://github.com/Oxapayy/oxas-library"]},{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is Oxa’s Library?","acceptedAnswer":{"@type":"Answer","text":"Oxa’s Library is a free, open-source media player for films, series and live TV. It gathers your own sources, such as a Jellyfin, Plex or Emby server, an M3U playlist or an Xtream Codes provider, into one library with Continue Watching, a watchlist and new-episode tracking, on iPhone, Mac, Windows and in the browser."}},{"@type":"Question","name":"Can I use it as an IPTV player?","acceptedAnswer":{"@type":"Answer","text":"Yes. Add an M3U playlist or Xtream Codes login and Oxa shows your channels with groups, favorites, channel search and an XMLTV program guide, in their own Live TV tab."}},{"@type":"Question","name":"Does Oxa include films or channels?","acceptedAnswer":{"@type":"Answer","text":"No. Oxa’s Library plays the sources you add. You need permission to access and download their media."}},{"@type":"Question","name":"Do I need an account?","acceptedAnswer":{"@type":"Answer","text":"No. Your library can stay on your device. Email sign-in is optional and turns on sync. Apple and Google sign-in are not included."}},{"@type":"Question","name":"Will every stream play?","acceptedAnswer":{"@type":"Answer","text":"No. Provider restrictions, expired links, DRM and unsupported codecs can stop playback or offline saving. In the web app, many hosted servers open on their own site instead."}},{"@type":"Question","name":"Can I reach my home server from anywhere?","acceptedAnswer":{"@type":"Answer","text":"Only if your server is reachable from the network you are on. An account syncs connection settings; it doesn’t open a private home server to the internet."}},{"@type":"Question","name":"What happens after a password reset?","acceptedAnswer":{"@type":"Answer","text":"Your sources, viewing history and watchlist stay. Older encrypted sources need a one-time transfer from an updated device that already has them."}},{"@type":"Question","name":"Is it really free?","acceptedAnswer":{"@type":"Answer","text":"Yes. The apps and the web app are free, the code is open source under the MIT licence, and there are no ads or subscriptions."}}]}]</script>
+<title>Oxa’s Library — Free app for films, series and live TV</title>
 <link rel="icon" href="assets/icon.png">
-<link rel="stylesheet" href="/assets/styles.fe1d5a955356.css">
-<script src="/assets/app.a808852deb7a.js" defer></script>
+<link rel="stylesheet" href="/assets/styles.5160afa2cbae.css">
+<script src="/assets/app.daff8be78f7d.js" defer></script>
 </head>
 <body>
 <button type="button" class="skip" data-scroll="main">Skip to content</button>
@@ -32,7 +50,7 @@
     <p class="hero-lead reveal">Your films, series and live TV.<br>One library, on every screen.</p>
     <div class="hero-actions reveal">
       <a id="hero-download" class="button primary" href="https://github.com/Oxapayy/oxas-library/releases">Download</a>
-      <a class="link" href="/web">Open in your browser <span aria-hidden="true">›</span></a>
+      <a class="button strong" href="/web">Open in your browser</a>
     </div>
     <p class="hero-fine reveal">Free and open source. For iPhone, Mac, Windows and the web.</p>
     <figure class="hero-shot reveal">
@@ -133,6 +151,14 @@
   <section class="faq" aria-labelledby="faq-title">
     <h2 id="faq-title" class="reveal">Questions and answers.</h2>
     <div class="answers reveal">
+      <details>
+        <summary>What is Oxa’s Library?</summary>
+        <p>Oxa’s Library is a free, open-source media player for films, series and live TV. It gathers your own sources, such as a Jellyfin, Plex or Emby server, an M3U playlist or an Xtream Codes provider, into one library with Continue Watching, a watchlist and new-episode tracking, on iPhone, Mac, Windows and in the browser.</p>
+      </details>
+      <details>
+        <summary>Can I use it as an IPTV player?</summary>
+        <p>Yes. Add an M3U playlist or Xtream Codes login and Oxa shows your channels with groups, favorites, channel search and an XMLTV program guide, in their own Live TV tab.</p>
+      </details>
       <details>
         <summary>Does Oxa include films or channels?</summary>
         <p>No. Oxa’s Library plays the sources you add. You need permission to access and download their media.</p>
