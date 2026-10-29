@@ -160,3 +160,52 @@ test("Jellyfin, Emby, Plex, WebDAV, direct, M3U, Xtream and mHub contracts", asy
     ),
   );
 });
+test("unchanged M3U playlists and guides are not downloaded again", async (t) => {
+  const http = await import("node:http");
+  const playlist =
+    '#EXTM3U url-tvg="/guide.xml"\n#EXTINF:-1 tvg-id="one",One\nhttp://127.0.0.1/one.m3u8\n';
+  const xml =
+    '<tv><programme channel="one" start="20260101000000 +0000" stop="20260101010000 +0000"><title>Show</title></programme></tv>';
+  const full: string[] = [];
+  const server = http.createServer((req, res) => {
+    const body = req.url === "/guide.xml" ? xml : playlist;
+    const etag = req.url === "/guide.xml" ? '"g1"' : '"p1"';
+    if (req.headers["if-none-match"] === etag) {
+      res.writeHead(304, { ETag: etag });
+      res.end();
+      return;
+    }
+    full.push(req.url || "");
+    res.writeHead(200, { ETag: etag, "Content-Type": "text/plain" });
+    res.end(body);
+  });
+  server.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => server.close());
+  const port = (server.address() as any).port;
+  const api = new Provider(
+    {
+      id: uuid(),
+      name: "Fixture",
+      kind: "M3U playlist",
+      host: `127.0.0.1:${port}`,
+      allowHTTP: true,
+      allowProviderFetch: false,
+    } as any,
+    { endpoint: `http://127.0.0.1:${port}/list.m3u` } as any,
+  );
+  const first = await api.catalog();
+  assert.equal(first.items.length, 1);
+  assert.equal(first.programs.length, 1);
+  assert.deepEqual(full, ["/list.m3u", "/guide.xml"]);
+  // Without titles to fall back on, the playlist is always downloaded.
+  await api.catalog();
+  assert.equal(full.length, 4);
+  const second = await api.catalog({
+    items: () => first.items,
+    programs: () => first.programs,
+  });
+  assert.equal(full.length, 4);
+  assert.equal(second.items[0].id, first.items[0].id);
+  assert.equal(second.programs[0].title, "Show");
+});

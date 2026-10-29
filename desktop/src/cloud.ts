@@ -29,6 +29,7 @@ export class Cloud {
   epoch = 0;
   message = "";
   timer: any;
+  syncDue = 0;
   lastSync: number;
   recovery = false;
   authEpoch = 0;
@@ -38,6 +39,8 @@ export class Cloud {
     public disk: Disk,
     public switched: () => void,
     public changed: () => void,
+    // Sync status alone needs no catalog projection; defaults to a full update.
+    public statusChanged: () => void = changed,
   ) {
     this.client = this.newClient();
   }
@@ -410,6 +413,7 @@ export class Cloud {
     const epoch = ++this.epoch;
     this.transitioning = true;
     clearTimeout(this.timer);
+    this.timer = undefined;
     try {
       try {
         await this.client.auth.signOut({ scope: "local" });
@@ -481,10 +485,23 @@ export class Cloud {
       base_revision: j.revisions[id] || 0,
       mutationID: uuid(),
     };
-    if (kind === "progress" && this.disk.saveSoon) this.disk.saveSoon();
+    // Playback reports progress every few seconds; batch those into one
+    // write and one sync request every 30 seconds instead of each report.
+    const delay = kind === "progress" ? 30000 : 750;
+    if (kind === "progress" && this.disk.saveSoon) this.disk.saveSoon(delay);
     else this.disk.save();
+    this.syncSoon(delay);
+  }
+  // Schedules a sync; an earlier deadline replaces a later one.
+  syncSoon(delay = 750) {
+    const due = Date.now() + delay;
+    if (this.timer && this.syncDue <= due) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.sync(), 750);
+    this.syncDue = due;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.sync();
+    }, delay);
   }
   source(s: Source, deleted = false) {
     this.queue(
@@ -614,12 +631,15 @@ export class Cloud {
       );
       journal.cursor = 0;
     }
-    journal.generation = generation;
-    this.disk.save();
+    if (journal.generation !== generation) {
+      journal.generation = generation;
+      this.disk.save();
+    }
     this.syncing = true;
-    this.changed();
+    this.statusChanged();
     const epoch = this.epoch,
       scope = this.disk.scope;
+    let applied = false;
     try {
       for (let pass = 0; pass < 20; pass++) {
         const j = this.disk.state.journal,
@@ -694,13 +714,17 @@ export class Cloud {
             continue;
           }
           this.apply(r);
+          applied = true;
         }
         for (const c of batch) {
           const id = c.kind + ":" + c.key;
           if (j.pending[id]?.mutationID === c.mutationID) delete j.pending[id];
         }
-        j.cursor = cursor;
-        this.disk.save();
+        // An empty poll changes nothing; skip re-encrypting the library.
+        if (rows.length || batch.length || j.cursor !== cursor) {
+          j.cursor = cursor;
+          this.disk.save();
+        }
         this.message = conflicts.length
           ? "A newer edit from another device was kept."
           : "";
@@ -720,7 +744,8 @@ export class Cloud {
       }
     } finally {
       this.syncing = false;
-      this.changed();
+      if (applied) this.changed();
+      else this.statusChanged();
     }
   }
 }

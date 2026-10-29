@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { bytes, request, webStream, cleanHeaders, local } from "./network";
 import type { Source } from "./model";
+import type { ArtworkCache } from "./artwork-cache";
 export const toVTT = (raw: string) =>
   raw.trimStart().startsWith("WEBVTT")
     ? raw
@@ -27,6 +28,7 @@ export class MediaTransport {
   private artworkEntries = new Map<string, any>();
   private childEntries = new Map<string, any>();
   entries = new Map<string, any>();
+  artworkCache?: ArtworkCache;
   private remote(url: string, source: Source, headers: any, format?: string) {
     return { url, source, headers: cleanHeaders(headers, true), format };
   }
@@ -126,6 +128,8 @@ export class MediaTransport {
           { status, headers },
         );
       }
+      if (this.artworkCache && this.artworkEntries.has(token))
+        return await this.cachedArtwork(entry, this.artworkCache);
       const extra: any = { ...entry.headers };
       if (req.headers.has("range")) extra.Range = req.headers.get("range");
       const options = {
@@ -190,6 +194,35 @@ export class MediaTransport {
         { status: 502 },
       );
     }
+  }
+  // Artwork is served from the disk cache when possible, and the browser may
+  // keep it for the session instead of fetching it on every redraw.
+  private async cachedArtwork(entry: any, cache: ArtworkCache) {
+    const id = (entry.source?.id || "") + "\n" + entry.url,
+      hit = cache.get(id),
+      headers = (type: string) => ({
+        "Content-Type": type,
+        "Cache-Control": "private, max-age=86400",
+      });
+    if (hit)
+      return new Response(new Uint8Array(hit.data), {
+        headers: headers(hit.type),
+      });
+    const r = await bytes(entry.url, {
+      source: entry.source,
+      media: true,
+      publicOnly: sourceIsPublic(entry.source),
+      headers: entry.headers,
+      limit: 12 * 1024 * 1024,
+      raw: true,
+    });
+    if (r.status < 200 || r.status >= 300)
+      return new Response("Artwork unavailable.", { status: r.status || 502 });
+    const type = String(
+      r.headers["content-type"] || "application/octet-stream",
+    );
+    if (/^image\//i.test(type)) cache.set(id, r.data, type);
+    return new Response(new Uint8Array(r.data), { headers: headers(type) });
   }
   rewrite(text: string, resolve: (raw: string) => string) {
     return text

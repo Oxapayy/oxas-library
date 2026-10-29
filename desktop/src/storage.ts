@@ -7,6 +7,7 @@ export type PreparedScope = { scope: string; state: Snapshot };
 export class Disk {
   key: Buffer;
   private saveTimer?: ReturnType<typeof setTimeout>;
+  private saveDue = 0;
   private pendingSave = false;
   private loaded = false;
   saveError?: string;
@@ -123,18 +124,22 @@ export class Disk {
       throw error;
     }
   }
-  // Transfer bytes and playback progress are noisy. Checkpoint at most once a
-  // second; explicit edits, completion, scope changes and quit still save now.
-  saveSoon() {
+  // Transfer bytes and playback progress are noisy. Each write re-encrypts the
+  // whole library, so batch them; explicit edits, completion, scope changes
+  // and quit still save now. An earlier deadline replaces a later one.
+  saveSoon(delay = 1000) {
     this.pendingSave = true;
-    if (this.saveTimer) return;
+    const due = Date.now() + delay;
+    if (this.saveTimer && this.saveDue <= due) return;
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveDue = due;
     this.saveTimer = setTimeout(() => {
       try {
         this.save();
       } catch {
         /* Keep dirty state for retry; background I/O errors must not crash. */
       }
-    }, 1000);
+    }, delay);
     this.saveTimer.unref();
   }
   get mediaRoot() {

@@ -20,6 +20,10 @@ import {
 } from "./network";
 export const MAX_CATALOG_ITEMS = 100000;
 const MAX_GUIDE_ROWS = 200000;
+// HTTP validators from the last playlist and guide downloads, kept for this
+// app session. A 304 reply reuses the titles already in the library.
+const validators = new Map<string, { etag?: string; modified?: string }>();
+const lastGuide = new Map<string, string>();
 const checkCatalogSize = (count: number, max = MAX_CATALOG_ITEMS) => {
   if (count > max)
     throw new ResponseLimitError(
@@ -277,7 +281,38 @@ export class Provider {
       );
     return m;
   }
-  async catalog() {
+  // Fetches a playlist or guide with the validators from its last download.
+  // Returns undefined when the server answers 304 Not Modified, so a large
+  // unchanged playlist is not downloaded and parsed again.
+  async conditional(url: string, opts: any, reuse: boolean) {
+    const known = reuse ? validators.get(url) : undefined;
+    const r = await bytes(url, {
+      ...opts,
+      raw: true,
+      headers: {
+        ...opts.headers,
+        ...(known?.etag ? { "If-None-Match": known.etag } : {}),
+        ...(known?.modified ? { "If-Modified-Since": known.modified } : {}),
+      },
+    });
+    if (r.status === 304 && known) return undefined;
+    if (r.status < 200 || r.status >= 300)
+      throw Error(
+        r.status === 401 || r.status === 403
+          ? "Source access was rejected. Check your login or subscription."
+          : `Source request failed (${r.status}).`,
+      );
+    const etag = r.headers.etag,
+      modified = r.headers["last-modified"];
+    if (etag || modified)
+      validators.set(url, {
+        etag: typeof etag === "string" ? etag : undefined,
+        modified: typeof modified === "string" ? modified : undefined,
+      });
+    else validators.delete(url);
+    return r.data.toString();
+  }
+  async catalog(previous?: { items: () => Media[]; programs: () => any[] }) {
     await this.authenticate();
     const kind = this.source.kind;
     let items: Media[] = [],
@@ -370,22 +405,28 @@ export class Provider {
       m.stream = this.base;
       items = [m];
     } else if (kind === "M3U playlist") {
-      const body = (await bytes(this.base, this.opts())).data.toString();
-      items = m3u(body, this.source, this.base);
-      let epg =
-        this.credentials.guideURL ||
-        body.match(/(?:url-tvg|x-tvg-url)="([^"]+)"/)?.[1];
+      const body = await this.conditional(this.base, this.opts(), !!previous);
+      items =
+        body === undefined
+          ? previous!.items()
+          : m3u(body, this.source, this.base);
+      // An unchanged playlist keeps the guide address it announced last time.
+      let epg = this.credentials.guideURL;
+      if (!epg && body === undefined) epg = lastGuide.get(this.base);
+      else if (!epg) {
+        epg = body!.match(/(?:url-tvg|x-tvg-url)="([^"]+)"/)?.[1];
+        if (epg) lastGuide.set(this.base, epg);
+        else lastGuide.delete(this.base);
+      }
       if (epg)
         try {
-          programs = guide(
-            (
-              await bytes(
-                new URL(epg, this.base).href,
-                this.opts({ headers: {} }),
-              )
-            ).data.toString(),
-            this.source,
+          const xml = await this.conditional(
+            new URL(epg, this.base).href,
+            this.opts({ headers: {} }),
+            !!previous,
           );
+          programs =
+            xml === undefined ? previous!.programs() : guide(xml, this.source);
         } catch (error) {
           if (error instanceof ResponseLimitError) throw error;
           warning =
@@ -410,15 +451,13 @@ export class Provider {
         items.push(...rows.map((r) => this.xtream(r, k)));
       }
       try {
-        programs = guide(
-          (
-            await bytes(
-              this.credentials.guideURL || this.url("xmltv.php", q),
-              this.opts(),
-            )
-          ).data.toString(),
-          this.source,
+        const xml = await this.conditional(
+          this.credentials.guideURL || this.url("xmltv.php", q),
+          this.opts(),
+          !!previous,
         );
+        programs =
+          xml === undefined ? previous!.programs() : guide(xml, this.source);
       } catch (error) {
         if (error instanceof ResponseLimitError) throw error;
         warning = "Channels loaded; program guide unavailable.";

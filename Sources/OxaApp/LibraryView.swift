@@ -73,7 +73,7 @@ struct LibraryView: View {
                     }
                 }
             }.padding(.top, 8).padding(.bottom, 28)
-        }.background(.black).toolbar(.hidden, for: .navigationBar).refreshable { store.startRefresh() }
+        }.background(.black).toolbar(.hidden, for: .navigationBar).refreshable { store.startRefresh(force: true) }
     }
     private var firstRun: some View {
         VStack(alignment: .leading, spacing: 28) {

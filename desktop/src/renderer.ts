@@ -1301,6 +1301,7 @@ window.oxa.onUpdate((update) => {
     ? {
         ...state,
         ...(update.transfers ? { transfers: update.transfers } : {}),
+        ...(update.account ? { account: update.account } : {}),
         media: state.media.map((m: any) =>
           statuses.has(m.id) ? { ...m, ...(statuses.get(m.id) as any) } : m,
         ),

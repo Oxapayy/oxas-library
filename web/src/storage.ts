@@ -120,6 +120,7 @@ export class BrowserDisk {
   private pending = new Map<string, { revision: number; value: any }>();
   private revision = 0;
   private timer?: ReturnType<typeof setTimeout>;
+  private due = 0;
   private tail: Promise<unknown> = Promise.resolve();
   private backend: BrowserStorageBackend;
   private loaded = false;
@@ -210,12 +211,16 @@ export class BrowserDisk {
     this.markLibrary();
     this.schedule(100);
   }
-  saveSoon() {
+  saveSoon(delay = 1000) {
     this.markLibrary();
-    this.schedule(1000);
+    this.schedule(delay);
   }
+  // An earlier deadline replaces a later one.
   private schedule(delay: number) {
-    if (this.timer) return;
+    const due = Date.now() + delay;
+    if (this.timer && this.due <= due) return;
+    clearTimeout(this.timer);
+    this.due = due;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.flushPending().catch(() => {});

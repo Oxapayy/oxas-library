@@ -54,6 +54,7 @@ export class BrowserCloud {
   epoch = 0;
   message = "";
   timer: any;
+  syncDue = 0;
   lastSync: number;
   recovery = false;
   authEpoch = 0;
@@ -491,6 +492,7 @@ export class BrowserCloud {
     const previousAuthEpoch = this.authEpoch;
     this.transitioning = true;
     clearTimeout(this.timer);
+    this.timer = undefined;
     try {
       try {
         await this.client.auth.signOut({ scope: "local" });
@@ -565,10 +567,23 @@ export class BrowserCloud {
       base_revision: j.revisions[id] || 0,
       mutationID: uuid(),
     };
-    if (kind === "progress" && this.disk.saveSoon) this.disk.saveSoon();
+    // Playback reports progress every few seconds; batch those into one
+    // write and one sync request every 30 seconds instead of each report.
+    const delay = kind === "progress" ? 30000 : 750;
+    if (kind === "progress" && this.disk.saveSoon) this.disk.saveSoon(delay);
     else this.disk.save();
+    this.syncSoon(delay);
+  }
+  // Schedules a sync; an earlier deadline replaces a later one.
+  syncSoon(delay = 750) {
+    const due = Date.now() + delay;
+    if (this.timer && this.syncDue <= due) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.sync(), 750);
+    this.syncDue = due;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.sync();
+    }, delay);
   }
   source(s: Source, deleted = false) {
     this.queue(
@@ -711,8 +726,10 @@ export class BrowserCloud {
       );
       journal.cursor = 0;
     }
-    journal.generation = generation;
-    this.disk.save();
+    if (journal.generation !== generation) {
+      journal.generation = generation;
+      this.disk.save();
+    }
     this.syncing = true;
     this.changed();
     const epoch = this.epoch,
@@ -800,9 +817,12 @@ export class BrowserCloud {
           const id = c.kind + ":" + c.key;
           if (j.pending[id]?.mutationID === c.mutationID) delete j.pending[id];
         }
-        j.cursor = cursor;
-        this.disk.save();
-        await this.disk.flushPending();
+        // An empty poll changes nothing; skip re-encrypting the library.
+        if (rows.length || batch.length || j.cursor !== cursor) {
+          j.cursor = cursor;
+          this.disk.save();
+          await this.disk.flushPending();
+        }
         this.message = conflicts.length
           ? "A newer edit from another device was kept."
           : "";

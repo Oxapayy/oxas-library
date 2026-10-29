@@ -16,7 +16,8 @@ export class Downloads {
     public changed: () => void,
   ) {}
   persist(progress = false) {
-    if (progress && this.disk.saveSoon) this.disk.saveSoon();
+    // Byte counts are cosmetic and rebuilt on retry; checkpoint them rarely.
+    if (progress && this.disk.saveSoon) this.disk.saveSoon(15000);
     else this.disk.save();
     this.changed();
   }
@@ -110,7 +111,12 @@ export class Downloads {
     }
     // Append only when the server continues exactly where the partial file ends.
     const range = /^bytes (\d+)-/.exec(response.headers["content-range"] || "");
-    if (response.status === 206 && existing && range && Number(range[1]) !== existing) {
+    if (
+      response.status === 206 &&
+      existing &&
+      range &&
+      Number(range[1]) !== existing
+    ) {
       response.stream.resume();
       fs.rmSync(partial, { force: true });
       return this.file(url, dest, opts, signal, update);
@@ -292,7 +298,8 @@ export class Downloads {
             const dest = path.join(folder, entry);
             // A retry resolves a fresh stream, which may be another file or
             // mirror. Never append its bytes to a partial file from a different URL.
-            if (t.partURL !== play.url) fs.rmSync(dest + ".part", { force: true });
+            if (t.partURL !== play.url)
+              fs.rmSync(dest + ".part", { force: true });
             t.partURL = play.url;
             t.bytes = await this.file(
               play.url,

@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  powerMonitor,
   protocol,
   ipcMain,
   Menu,
@@ -37,6 +38,7 @@ import {
 import { urlCheck, local } from "./network";
 import { metadataSearch } from "./metadata";
 import { Updates } from "./updates";
+import { ArtworkCache } from "./artwork-cache";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "oxa",
@@ -149,14 +151,7 @@ function view() {
     preferences: disk.state.preferences,
     storageError: disk.saveError,
     hideWelcome: disk.read("ui", {}).hideWelcome || false,
-    account: {
-      email: cloud?.identity?.email,
-      signedIn: !!cloud?.identity,
-      unlocked: !!cloud?.ready,
-      syncing: cloud?.syncing,
-      message: cloud?.message,
-      lastSync: cloud?.lastSync,
-    },
+    account: accountView(),
     version: app.getVersion(),
     platform: process.platform,
     update:
@@ -169,7 +164,17 @@ function view() {
         : { state: "none" },
   };
 }
-type UpdateSection = "all" | "transfers" | "progress";
+function accountView() {
+  return {
+    email: cloud?.identity?.email,
+    signedIn: !!cloud?.identity,
+    unlocked: !!cloud?.ready,
+    syncing: cloud?.syncing,
+    message: cloud?.message,
+    lastSync: cloud?.lastSync,
+  };
+}
+type UpdateSection = "all" | "transfers" | "progress" | "account";
 let updateTimer: ReturnType<typeof setTimeout> | undefined;
 const pendingUpdates = new Set<UpdateSection>();
 const pendingStatusIDs = new Set<string>();
@@ -198,6 +203,7 @@ function changed(section: UpdateSection = "all", mediaID?: string) {
         };
         if (pendingUpdates.has("transfers"))
           payload.transfers = projection.transfers();
+        if (pendingUpdates.has("account")) payload.account = accountView();
       }
       pendingUpdates.clear();
       pendingStatusIDs.clear();
@@ -208,7 +214,7 @@ function changed(section: UpdateSection = "all", mediaID?: string) {
   for (const source of disk.state.sources)
     if (!sourceAttempts.has(source.id)) {
       sourceAttempts.add(source.id);
-      queueMicrotask(() => void refresh(source.id));
+      if (stale(source)) queueMicrotask(() => void refresh(source.id));
     }
 }
 function scopeGuard(sourceID?: string) {
@@ -228,6 +234,31 @@ function scopeGuard(sourceID?: string) {
 function merge(items: Media[]) {
   mergeMedia(disk.state, items);
 }
+// Catalogs change rarely and re-downloading a large playlist costs battery and
+// data. Automatic refreshes skip sources refreshed recently that already have
+// titles on this device; manual refreshes always run.
+function stale(source: Source, maxAge = 30 * 60) {
+  return (
+    !source.refreshedAt ||
+    source.refreshedAt < appleNow() - maxAge ||
+    !disk.state.media.some(
+      (m) => m.sourceID === source.id && !m.id.startsWith("cloud:"),
+    )
+  );
+}
+function refreshStale(maxAge?: number) {
+  for (const s of disk.state.sources) if (stale(s, maxAge)) void refresh(s.id);
+}
+// Sync and refresh less often on battery or while the window is out of sight.
+function relaxed() {
+  return (
+    powerMonitor.isOnBatteryPower() ||
+    !win ||
+    win.isDestroyed() ||
+    !win.isVisible() ||
+    win.isMinimized()
+  );
+}
 async function refresh(id: string) {
   if (refreshing.has(id)) return;
   const source = disk.state.sources.find((s) => s.id === id);
@@ -240,7 +271,18 @@ async function refresh(id: string) {
   changed();
   try {
     const provider = api(source);
-    const result = await provider.catalog();
+    const owned = (m: { sourceID: string; id: string }) =>
+      m.sourceID === id && !m.id.startsWith("cloud:");
+    // Conditional playlist requests only make sense with titles to fall back on.
+    const result = await provider.catalog(
+      disk.state.media.some(owned)
+        ? {
+            items: () => disk.state.media.filter(owned),
+            programs: () =>
+              disk.state.programs.filter((p) => p.sourceID === id),
+          }
+        : undefined,
+    );
     if (
       epoch !== cloud.epoch ||
       scope !== disk.scope ||
@@ -823,7 +865,8 @@ async function execute(action: string, args: any = {}) {
           (duration > 0 && seconds >= duration - Math.min(30, duration * 0.03)),
         playedAt: appleNow(),
       };
-      disk.saveSoon();
+      if (args.ended === true) disk.save();
+      else disk.saveSoon(30000);
       cloud.progress(m);
       if (Date.now() - lastUpdate > 2500) {
         lastUpdate = Date.now();
@@ -1003,6 +1046,9 @@ async function execute(action: string, args: any = {}) {
     case "closePlayer":
       active = null;
       transport.closePlayback();
+      // Progress is batched during playback; persist and sync it on close.
+      disk.saveSoon(0);
+      cloud.syncSoon();
       return true;
   }
 }
@@ -1052,6 +1098,10 @@ app.whenReady().then(async () => {
   try {
     nativeTheme.themeSource = "dark";
     disk = new Disk(app.getPath("userData"), testMode, () => changed());
+    transport.artworkCache = new ArtworkCache(
+      path.join(app.getPath("userData"), "artwork-cache"),
+      disk.key,
+    );
     cloud = new Cloud(
       disk,
       () => {
@@ -1066,6 +1116,7 @@ app.whenReady().then(async () => {
         active = null;
       },
       changed,
+      () => changed("account"),
     );
     downloads = new Downloads(
       disk,
@@ -1193,8 +1244,15 @@ app.whenReady().then(async () => {
     const restoring = cloud.boot();
     createWindow();
     await restoring;
-    for (const s of disk.state.sources) void refresh(s.id);
-    setInterval(() => void cloud.sync(), 60000);
+    refreshStale();
+    let ticks = 0;
+    setInterval(() => {
+      if (!relaxed() || ++ticks % 5 === 0) void cloud.sync();
+    }, 60000);
+    powerMonitor.on("resume", () => {
+      void cloud.sync();
+      refreshStale(60 * 60);
+    });
     if (!testMode) {
       updates = new Updates(
         app.getVersion(),
@@ -1205,9 +1263,7 @@ app.whenReady().then(async () => {
       setInterval(() => void updates?.check(), 6 * 60 * 60 * 1000);
     }
     setInterval(
-      () => {
-        for (const s of disk.state.sources) void refresh(s.id);
-      },
+      () => refreshStale(relaxed() ? 3 * 60 * 60 : 60 * 60),
       15 * 60 * 1000,
     );
     app.on("activate", () => {

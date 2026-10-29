@@ -1003,3 +1003,23 @@ test("update check picks the newest matching desktop installer", async () => {
   );
   assert.equal(pick(releases, "1.0.2", "linux", "x64"), undefined);
 });
+test("artwork cache seals files, returns them and trims to its limit", async () => {
+  const { ArtworkCache } = await import("../src/artwork-cache");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oxa-art-"));
+  const cache = new ArtworkCache(dir, Buffer.alloc(32, 7), 3000);
+  cache.set("a", Buffer.alloc(1000, 1), "image/jpeg");
+  assert.deepEqual(cache.get("a")?.type, "image/jpeg");
+  assert.equal(cache.get("a")?.data.length, 1000);
+  assert.equal(cache.get("missing"), undefined);
+  // Files on disk never contain the plain image bytes.
+  const raw = fs.readFileSync(path.join(dir, fs.readdirSync(dir)[0]));
+  assert.equal(raw.includes(Buffer.alloc(64, 1)), false);
+  for (const id of ["b", "c", "d", "e"])
+    cache.set(id, Buffer.alloc(1000, 2), "image/png");
+  const total = fs
+    .readdirSync(dir)
+    .reduce((sum, name) => sum + fs.statSync(path.join(dir, name)).size, 0);
+  assert.ok(total <= 3000, `cache kept ${total} bytes`);
+  assert.equal(cache.get("e")?.type, "image/png");
+  fs.rmSync(dir, { recursive: true, force: true });
+});

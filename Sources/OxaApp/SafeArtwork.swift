@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageIO
+import CryptoKit
 
 struct SafeArtwork: View {
     @Environment(AppStore.self) private var store
@@ -44,7 +45,10 @@ actor ArtworkRepository {
     private let permits = ArtworkPermits(limit: 4)
     private var requests: [ArtworkRequest: (task: Task<ArtworkImage, Error>, readers: Set<UUID>)] = [:]
 
-    init() { cache.totalCostLimit = 40 * 1024 * 1024; cache.countLimit = 160 }
+    init() {
+        cache.totalCostLimit = 40 * 1024 * 1024; cache.countLimit = 160
+        Task.detached(priority: .background) { ArtworkDiskCache.trim() }
+    }
 
     func image(for request: ArtworkRequest) async throws -> ArtworkImage {
         let key = "\(request.allowHTTP):\(request.publicOnly):\(request.pixelSize):\(request.url.absoluteString)" as NSString
@@ -57,6 +61,7 @@ actor ArtworkRepository {
         } else {
             let permits = permits
             task = Task.detached(priority: .utility) {
+                if let data = ArtworkDiskCache.read(request), let image = try? Self.decode(data, pixelSize: request.pixelSize) { return image }
                 try await permits.acquire()
                 do {
                     try Task.checkCancellation()
@@ -64,6 +69,7 @@ actor ArtworkRepository {
                     guard (200...299).contains(payload.response.statusCode), payload.response.mimeType?.hasPrefix("image/") == true else { throw URLError(.cannotDecodeContentData) }
                     try Task.checkCancellation()
                     let image = try Self.decode(payload.data, pixelSize: request.pixelSize)
+                    ArtworkDiskCache.write(payload.data, for: request)
                     await permits.release()
                     return image
                 } catch { await permits.release(); throw error }
@@ -91,6 +97,36 @@ actor ArtworkRepository {
         guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
               let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: max(64, min(1200, pixelSize)), kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else { throw URLError(.cannotDecodeContentData) }
         return ArtworkImage(image: UIImage(cgImage: thumbnail), cost: thumbnail.bytesPerRow * thumbnail.height)
+    }
+}
+
+/// Keeps downloaded artwork in Caches so posters appear instantly on the next
+/// launch instead of being downloaded again. iOS may purge it when space runs
+/// low; files use complete data protection.
+enum ArtworkDiskCache {
+    static let limit = 200 * 1024 * 1024
+    static var directory: URL { FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Artwork", isDirectory: true) }
+    static func file(_ request: ArtworkRequest) -> URL {
+        let key = "\(request.allowHTTP):\(request.publicOnly):\(request.url.absoluteString)"
+        return directory.appendingPathComponent(SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined())
+    }
+    static func read(_ request: ArtworkRequest) -> Data? { try? Data(contentsOf: file(request)) }
+    static func write(_ data: Data, for request: ArtworkRequest) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? data.write(to: file(request), options: [.atomic, .completeFileProtection])
+    }
+    /// Removes the oldest files once the cache grows past its limit.
+    static func trim() {
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) else { return }
+        var rows = files.compactMap { url -> (URL, Int, Date)? in
+            guard let values = try? url.resourceValues(forKeys: Set(keys)) else { return nil }
+            return (url, values.fileSize ?? 0, values.contentModificationDate ?? .distantPast)
+        }
+        var total = rows.reduce(0) { $0 + $1.1 }
+        guard total > limit else { return }
+        rows.sort { $0.2 < $1.2 }
+        for row in rows where total > limit * 8 / 10 { try? FileManager.default.removeItem(at: row.0); total -= row.1 }
     }
 }
 

@@ -25,6 +25,41 @@ final class HTTPClient: @unchecked Sendable {
         return payload.data
     }
 }
+/// HTTP validators from the last playlist and guide downloads in this app
+/// session. A 304 reply reuses the titles already in the library.
+final class HTTPValidators: @unchecked Sendable {
+    static let shared = HTTPValidators()
+    private let lock = NSLock()
+    private var values: [URL: (etag: String?, modified: String?)] = [:]
+    private var guides: [URL: URL] = [:]
+    subscript(url: URL) -> (etag: String?, modified: String?)? {
+        get { lock.withLock { values[url] } }
+        set { lock.withLock { values[url] = newValue } }
+    }
+    func guide(for playlist: URL) -> URL? { lock.withLock { guides[playlist] } }
+    func setGuide(_ guide: URL?, for playlist: URL) { lock.withLock { guides[playlist] = guide } }
+}
+extension HTTPClient {
+    /// Downloads with the validators from the last download. Returns nil when
+    /// the server answers 304 Not Modified, so an unchanged playlist is not
+    /// downloaded and parsed again.
+    func conditional(_ url: URL, source: MediaSource, reuse: Bool) async throws -> Data? {
+        var request = URLRequest(url: url)
+        let known = reuse ? HTTPValidators.shared[url] : nil
+        if let etag = known?.etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+        if let modified = known?.modified { request.setValue(modified, forHTTPHeaderField: "If-Modified-Since") }
+        let payload = try await BoundedHTTP.fetch(request, limit: 64 * 1024 * 1024, allowHTTP: source.allowHTTP)
+        let response = payload.response
+        if response.statusCode == 304, known != nil { return nil }
+        guard (200...299).contains(response.statusCode) else {
+            if response.statusCode == 401 || response.statusCode == 403 { throw OxaError.message("Access denied. Check this source’s credentials and permissions.") }
+            throw OxaError.message("The server returned HTTP \(response.statusCode). Try again or check its address.")
+        }
+        let etag = response.value(forHTTPHeaderField: "ETag"), modified = response.value(forHTTPHeaderField: "Last-Modified")
+        HTTPValidators.shared[url] = etag == nil && modified == nil ? nil : (etag, modified)
+        return payload.data
+    }
+}
 struct CatalogResult { var media: [Media]; var programs: [TVProgram] = []; var warning: String?; var websiteConnection: WebsiteConnection?; var websitePages: [WebsiteCatalogPage] = [] }
 /// Per-refresh bounds supplement the transport's per-response limit. A server
 /// that ignores offsets must not keep growing a library until iOS kills it.
@@ -93,7 +128,7 @@ struct MediaAPI {
         guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw OxaError.message("This address did not return the expected server API.") }
         return result
     }
-    func catalog() async throws -> CatalogResult {
+    func catalog(previous: (media: [Media], programs: [TVProgram])? = nil) async throws -> CatalogResult {
         var budget = CatalogImportBudget(maximumPages: source.kind == .webdav ? 2000 : 500)
         switch source.kind {
         case .jellyfin, .emby:
@@ -133,11 +168,17 @@ struct MediaAPI {
             item.stream = base
             return CatalogResult(media: [item])
         case .m3u:
-            let data = try await HTTPClient.shared.data(base, source: source)
+            guard let data = try await HTTPClient.shared.conditional(base, source: source, reuse: previous != nil) else {
+                // Unchanged playlist: keep its titles and the guide it announced.
+                let guide = credentials.guideURL.isEmpty ? HTTPValidators.shared.guide(for: base) : URL(string: credentials.guideURL)
+                return await withGuide(media: previous?.media ?? [], guide: guide, previous: previous?.programs)
+            }
             guard let text = String(data: data, encoding: .utf8) else { throw OxaError.message("The playlist must use UTF-8 text encoding.") }
             let media = try M3UParser.parse(text, sourceID: source.id, baseURL: base)
-            let guide = credentials.guideURL.isEmpty ? M3UParser.guideURL(text, baseURL: base) : URL(string: credentials.guideURL)
-            return await withGuide(media: media, guide: guide)
+            let announced = M3UParser.guideURL(text, baseURL: base)
+            HTTPValidators.shared.setGuide(announced, for: base)
+            let guide = credentials.guideURL.isEmpty ? announced : URL(string: credentials.guideURL)
+            return await withGuide(media: media, guide: guide, previous: previous?.programs)
         case .xtream:
             let auth = try await json("player_api.php", query: xtreamQuery)
             guard let user = auth["user_info"] as? [String: Any], String(describing: user["auth"] ?? "0") == "1" else { throw OxaError.message("Xtream login was rejected. Check your username and password.") }
@@ -147,7 +188,7 @@ struct MediaAPI {
                 guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw OxaError.message("The IPTV provider returned an invalid catalog.") }
                 items += rows.compactMap { xtreamItem($0, kind: kind) }
             }
-            return await withGuide(media: items, guide: credentials.guideURL.isEmpty ? url("xmltv.php", query: xtreamQuery) : URL(string: credentials.guideURL))
+            return await withGuide(media: items, guide: credentials.guideURL.isEmpty ? url("xmltv.php", query: xtreamQuery) : URL(string: credentials.guideURL), previous: previous?.programs)
         case .webdav:
             var items: [Media] = []; var pending = [base]; var visited: Set<URL> = []
             while let directory = pending.popLast() {
@@ -173,10 +214,10 @@ struct MediaAPI {
             return CatalogResult(media: items)
         }
     }
-    private func withGuide(media: [Media], guide: URL?) async -> CatalogResult {
+    private func withGuide(media: [Media], guide: URL?, previous: [TVProgram]? = nil) async -> CatalogResult {
         guard let guide else { return CatalogResult(media: media) }
         do {
-            let data = try await HTTPClient.shared.data(guide, source: source)
+            guard let data = try await HTTPClient.shared.conditional(guide, source: source, reuse: previous != nil) else { return CatalogResult(media: media, programs: previous ?? []) }
             return CatalogResult(media: media, programs: try XMLTVParser(sourceID: source.id).parse(data))
         } catch { return CatalogResult(media: media, warning: "Channels loaded, but the program guide could not be refreshed. Check the XMLTV URL.") }
     }

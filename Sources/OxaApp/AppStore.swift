@@ -26,6 +26,7 @@ import AVFoundation
     var disk: EncryptedDisk?
     @ObservationIgnored let persistence = DiskWriteQueue()
     var availableUpdate: AppRelease?
+    @ObservationIgnored private var progressSavedAt = Date.distantPast
     @ObservationIgnored private var updateCheckedAt: Date?
     init(disk injectedDisk: EncryptedDisk? = nil, vault: Vault = Vault(), identityVault: Vault = Vault(), startServices: Bool = true) {
         self.vault = vault; self.identityVault = identityVault
@@ -168,10 +169,12 @@ import AVFoundation
             for item in catalog where item.sourceID == source.id && item.kind == .episode && (state.progress[item.id]?.seconds ?? 0) > 0 {
                 if let seriesID = item.seriesID {
                     let key = "\(source.id):\(seriesID)"
-                    if state.followedSeries?[key] == nil { let known = Set(catalog.filter { $0.sourceID == source.id && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)); state.followedSeries?[key] = known }
+                    if state.followedSeries?[key] == nil { state.followedSeries?[key] = Set(state.episodes(sourceID: source.id, seriesID: seriesID).map(\.id)) }
                 }
             }
-            var result = try await client.catalog()
+            // Conditional playlist requests only make sense with titles to fall back on.
+            let owned = state.media.filter { $0.sourceID == source.id && !$0.id.hasPrefix("cloud:") }
+            var result = try await client.catalog(previous: owned.isEmpty ? nil : (owned, state.programs.filter { $0.sourceID == source.id }))
             guard context == libraryEpoch, self.source(source.id) != nil else { return }
             reconcileCloudMetadata(result.media)
             let previous = Dictionary(state.media.filter { $0.sourceID == source.id }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -196,15 +199,24 @@ import AVFoundation
         } catch { guard context == libraryEpoch else { return }; notices[source.id] = "Could not refresh \(source.name). Cached titles are still available. \(safeMessage(error))" }
     }
     private var refreshTask: Task<Void, Never>?
-    func startRefresh() {
+    /// Automatic refreshes skip sources refreshed recently that already have
+    /// titles here, because re-downloading large playlists costs battery and
+    /// data. Pull to refresh passes force; Low Power Mode waits longer.
+    func startRefresh(force: Bool = false) {
         #if DEBUG
         // This playback-only fixture intentionally has no matching server catalog.
         if ProcessInfo.processInfo.arguments.contains("--ui-test-episode-player") { return }
         #endif
         guard refreshTask == nil, playback == nil, !preparingPlayback else { return }
-        refreshTask = Task { await refreshAll(); refreshTask = nil }
+        let maxAge: TimeInterval = ProcessInfo.processInfo.isLowPowerModeEnabled ? 3 * 3600 : 30 * 60
+        let due = sources.filter { force || isStale($0, maxAge: maxAge) }
+        guard !due.isEmpty else { return }
+        refreshTask = Task { for source in due { await refresh(source) }; refreshTask = nil }
     }
-    func refreshAll() async { for source in sources { await refresh(source) } }
+    func isStale(_ source: MediaSource, maxAge: TimeInterval) -> Bool {
+        guard let refreshed = source.refreshedAt, Date().timeIntervalSince(refreshed) < maxAge else { return true }
+        return !state.media.contains { $0.sourceID == source.id && !$0.id.hasPrefix("cloud:") }
+    }
     func removeSource(_ source: MediaSource) {
         account?.sourceChanged(source, deleted: true)
         do { try vault.remove(source.id.uuidString) } catch { self.error = safeMessage(error); return }
@@ -409,19 +421,24 @@ import AVFoundation
             playback = Playback(media: prepared, url: url)
         } catch { if context == libraryEpoch { self.error = safeMessage(error) } }
     }
-    func record(_ item: Media, seconds: Double, duration: Double, ended: Bool = false) {
+    /// Playback reports progress every few seconds, and each save re-encrypts
+    /// the whole library. Unfinished progress is saved at most every 30 seconds;
+    /// finishing, closing the player and leaving the app save right away.
+    func record(_ item: Media, seconds: Double, duration: Double, ended: Bool = false, force: Bool = false) {
         guard !preview, item.kind != .channel, seconds.isFinite else { return }
         if item.kind == .episode, let seriesID = item.seriesID {
             if state.followedSeries == nil { state.followedSeries = [:] }
             let key = "\(item.sourceID):\(seriesID)"
-            if state.followedSeries?[key] == nil { let known = Set(catalog.filter { $0.sourceID == item.sourceID && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)); state.followedSeries?[key] = known }
+            if state.followedSeries?[key] == nil { state.followedSeries?[key] = Set(state.episodes(sourceID: item.sourceID, seriesID: seriesID).map(\.id)) }
             state.newEpisodeIDs?.remove(item.id)
         }
         let total = duration.isFinite && duration > 0 ? duration : item.duration
         // Match desktop and web: the last 30 seconds (or 3 %) count as watched.
         let finished = ended || (total > 0 && seconds >= total - min(30, total * 0.03))
         state.progress[item.id] = WatchProgress(seconds: seconds, duration: total, completed: finished)
-        save(); account?.progressChanged(item)
+        let urgent = finished || force
+        if urgent || Date().timeIntervalSince(progressSavedAt) >= 30 { save(); progressSavedAt = Date() }
+        account?.progressChanged(item, urgent: urgent)
     }
     func nextEpisode(_ item: Media) -> Media? {
         guard item.kind == .episode, let seriesID = item.seriesID else { return nil }

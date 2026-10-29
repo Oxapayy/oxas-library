@@ -1,4 +1,6 @@
 import { BrowserDisk } from './storage';
+// The web app ships the same client as the desktop release it was built with.
+declare const __OXA_VERSION__: string;
 import { BrowserCloud } from './cloud';
 import { libraryView, mergeMedia } from '../../desktop/src/library-view';
 import { kinds, uuid, hash, cloudKey, appleNow, bounded, ordered, nextEpisode, episodeChanges, type Media, type Source, type Credentials } from '../../desktop/src/model';
@@ -102,8 +104,14 @@ class BrowserEngine {
   }
   private refreshMissing(force = false) {
     for (const source of this.disk.state.sources) {
-      if (force || !this.observed.has(source.id)) { this.observed.add(source.id); void this.refresh(source.id); }
+      if (force || !this.observed.has(source.id)) { this.observed.add(source.id); if (force || this.stale(source)) void this.refresh(source.id); }
     }
+  }
+  // Reopening the page reuses a catalog fetched within the last hour instead
+  // of downloading every source through the gateway again.
+  private stale(source: Source) {
+    return !source.refreshedAt || source.refreshedAt < appleNow() - 60 * 60
+      || !this.disk.state.media.some(m => m.sourceID === source.id && !m.id.startsWith('cloud:'));
   }
   private guard(sourceID?: string) {
     const scope = this.disk.scope, epoch = this.cloud.epoch;
@@ -137,7 +145,7 @@ class BrowserEngine {
       storageError: this.fatal || this.disk.saveError, initializing: this.initializing, loadingMessage: this.loadingMessage,
       hideWelcome,
       account: { email: this.cloud.identity?.email, signedIn: !!this.cloud.identity, unlocked: !!this.cloud.ready, syncing: this.cloud.syncing, message: this.cloud.message, lastSync: this.cloud.lastSync },
-      platform: 'web', version: '1.0.0-web'
+      platform: 'web', version: __OXA_VERSION__
     };
   }
   changed() {
@@ -332,7 +340,9 @@ class BrowserEngine {
           this.disk.state.newEpisodeIDs = (this.disk.state.newEpisodeIDs || []).filter(id => id !== m.id);
         }
         this.disk.state.progress[m.id] = { seconds, duration, completed: args.ended === true || (duration > 0 && seconds >= duration - Math.min(30, duration * 0.03)), playedAt: appleNow() };
-        this.disk.saveSoon(); this.cloud.progress(m);
+        // Each save re-encrypts the whole library; batch playback reports.
+        if (args.ended === true) this.disk.save(); else this.disk.saveSoon(30000);
+        this.cloud.progress(m);
         const patch = { partial: true, mediaUpdates: this.getProjection().status(new Set([m.id])) }; for (const fn of listeners) fn(patch);
         return true;
       }
@@ -353,7 +363,7 @@ class BrowserEngine {
       case 'signout': await this.cloud.signout(); await this.ensureDefault(); this.invalidate(); this.refreshMissing(); return this.view();
       case 'sync': await this.cloud.sync(); this.invalidate(); this.refreshMissing(); return this.view();
       case 'deleteAccount': await this.cloud.deleteAccount(String(args.password || '')); await this.ensureDefault(); this.invalidate(); this.refreshMissing(); return this.view();
-      case 'closePlayer': this.active = null; await this.disk.flushPending(); return true;
+      case 'closePlayer': this.active = null; this.cloud.syncSoon(); await this.disk.flushPending(); return true;
       case 'caption.import': return chooseCaption();
       case 'metadata.token': {
         const token = String(args.token || '').trim(); if (token.length > 8192 || /[\r\n]/.test(token)) throw Error('Invalid metadata read token.');

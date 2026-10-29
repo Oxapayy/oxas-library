@@ -8,6 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
 let config = {};
 try { config = JSON.parse(await readFile('../Config/Cloud.local.json', 'utf8')); } catch {}
+const appVersion = JSON.parse(await readFile(path.join(root, '../desktop/package.json'), 'utf8')).version;
 const url = process.env.OXA_CLOUD_URL || config.url || '';
 const key = process.env.OXA_CLOUD_PUBLIC_KEY || config.publishableKey || '';
 if (url && (!url.startsWith('https://') || !key)) throw Error('Use HTTPS and a public client key.');
@@ -29,7 +30,7 @@ await build({
   outfile: 'dist/main.js', target: ['safari17', 'chrome120', 'firefox120'], minify: true,
   plugins: [modelAlias],
   nodePaths: [path.join(root, 'node_modules')],
-  define: { __OXA_CLOUD_URL__: JSON.stringify(url), __OXA_CLOUD_PUBLIC_KEY__: JSON.stringify(key) },
+  define: { __OXA_CLOUD_URL__: JSON.stringify(url), __OXA_CLOUD_PUBLIC_KEY__: JSON.stringify(key), __OXA_VERSION__: JSON.stringify(appVersion) },
 });
 await copyFile('src/index.html', 'dist/index.html');
 await copyFile('../desktop/src/app.css', 'dist/app.css');

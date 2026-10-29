@@ -38,6 +38,7 @@ enum AccountSyncRPC {
     private var key: SymmetricKey?
     private var epoch = UUID()
     private var timer: Task<Void, Never>?
+    private var syncDue: ContinuousClock.Instant?
     private var initialMerge = false
     private var lastPreferences: [String: String]?
     private var operationTask: Task<Void, Never>?
@@ -116,7 +117,7 @@ enum AccountSyncRPC {
         message = "Password updated. Your sources, watchlist and viewing history are kept."
     }
     private func authenticated(_ user: User, password: String?, merge: Bool) async throws {
-        epoch = UUID(); timer?.cancel()
+        epoch = UUID(); timer?.cancel(); timer = nil; syncDue = nil
         let nextIdentity = AccountIdentity(id: user.id, email: user.email ?? "Signed-in account")
         var nextKey: SymmetricKey?
         // Retire incomplete legacy reset operations without deleting any records.
@@ -172,7 +173,7 @@ enum AccountSyncRPC {
         if initialMerge || !self.journal.initialized || store.state.accountSyncFormat != 2 { queueLibrary(); store.state.accountSyncFormat = 2; store.save(); self.journal.initialized = true; try saveJournal(); initialMerge = false; await sync() }
     }
     func signOut() async throws {
-        epoch = UUID(); timer?.cancel(); operationTask?.cancel()
+        epoch = UUID(); timer?.cancel(); timer = nil; syncDue = nil; operationTask?.cancel()
         let token = epoch
         try await persistJournal()
         await store?.downloads?.stopForAccountChange()
@@ -248,14 +249,14 @@ enum AccountSyncRPC {
         let snapshot = journal, name = "journal-\(owner)"
         try await store.persistence.flush(key: name) { try disk.saveNamed(snapshot, name: name) }
     }
-    private func queue<T: Encodable>(_ kind: String, key recordKey: String, value: T, deleted: Bool = false, encrypt: Bool = false) {
+    private func queue<T: Encodable>(_ kind: String, key recordKey: String, value: T, deleted: Bool = false, encrypt: Bool = false, delay: Duration = .milliseconds(700)) {
         guard unlocked else { return }
         do {
             let bytes = try JSONEncoder().encode(value)
             let text = bytes.base64EncodedString()
             let id = "\(kind):\(recordKey)"
             journal.pending[id] = CloudChange(kind: kind, key: recordKey, payload: CloudPayload(value: text, format: kind == "source" ? "account-v2" : nil), deleted: deleted, base_revision: journal.revisions[id] ?? 0)
-            if !batchingJournal { try saveJournal(); schedule() }
+            if !batchingJournal { try saveJournal(); schedule(after: delay) }
         } catch { message = "Could not queue encrypted library changes. Your local library is still available." }
     }
     func sourceChanged(_ source: MediaSource, deleted: Bool = false) {
@@ -264,7 +265,9 @@ enum AccountSyncRPC {
         }
         queue("source", key: source.id.uuidString, value: CloudSource(source: source, credentials: credentials), deleted: deleted, encrypt: true)
     }
-    func progressChanged(_ media: Media) { queue("progress", key: media.cloudKey, value: CloudMediaState(media: media.cloudMetadata, progress: store?.state.progress[media.id])) }
+    /// Playback progress syncs in one request every 30 seconds instead of after
+    /// every report; finishing or closing the player syncs right away.
+    func progressChanged(_ media: Media, urgent: Bool = true) { queue("progress", key: media.cloudKey, value: CloudMediaState(media: media.cloudMetadata, progress: store?.state.progress[media.id]), delay: urgent ? .milliseconds(700) : .seconds(30)) }
     func watchlistChanged(_ media: Media, present: Bool) { queue("watchlist", key: media.cloudKey, value: CloudMediaState(media: media.cloudMetadata), deleted: !present) }
     func preferencesChanged() {
         guard let p = store?.state.preferences else { return }
@@ -281,10 +284,16 @@ enum AccountSyncRPC {
         for media in store.catalog where store.state.favorites.contains(media.id) { watchlistChanged(media, present: true) }
         preferencesChanged()
     }
-    func schedule() {
+    /// Schedules a sync; an earlier deadline replaces a later one.
+    func schedule(after delay: Duration = .milliseconds(700)) {
         guard unlocked, !syncing else { return }
-        timer?.cancel()
-        timer = Task { try? await Task.sleep(for: .milliseconds(700)); guard !Task.isCancelled else { return }; await sync() }
+        let due = ContinuousClock.now + delay
+        if timer != nil, let syncDue, syncDue <= due { return }
+        timer?.cancel(); syncDue = due
+        timer = Task {
+            try? await Task.sleep(until: due); guard !Task.isCancelled else { return }
+            timer = nil; syncDue = nil; await sync()
+        }
     }
     func sync() async {
         guard !syncing, unlocked, let identity, let settings, let store else { return }
@@ -328,9 +337,12 @@ enum AccountSyncRPC {
                     try apply(record, owner: identity.id, key: self.key, generation: settings.generation)
                 }
                 for change in batch where journal.pending[change.id]?.mutationID == change.mutationID { journal.pending.removeValue(forKey: change.id) }
-                journal.cursor = cursor; try await store.persistSnapshot()
+                // An empty poll changes nothing; skip re-encrypting the library.
+                let journalChanged = !batch.isEmpty || !returned.isEmpty || journal.cursor != cursor
+                journal.cursor = cursor
+                if !returned.isEmpty { try await store.persistSnapshot() }
                 guard token == epoch, store.accountID == identity.id else { return }
-                try await persistJournal()
+                if journalChanged { try await persistJournal() }
                 guard token == epoch, store.accountID == identity.id else { return }
                 message = conflicts.isEmpty ? nil : "A newer change from another device was kept. Review your library before editing it again."
                 lastSync = .now

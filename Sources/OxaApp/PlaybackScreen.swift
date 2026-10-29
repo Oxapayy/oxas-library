@@ -54,7 +54,7 @@ import Observation
             let item = AVPlayerItem(asset: asset)
             player.replaceCurrentItem(with: item)
             controlObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-                Task { @MainActor in self?.isPlaying = player.timeControlStatus == .playing; if player.timeControlStatus == .paused { self?.save() } }
+                Task { @MainActor in self?.isPlaying = player.timeControlStatus == .playing; if player.timeControlStatus == .paused { self?.save(force: true) } }
             }
             statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                 if item.status == .failed { Task { @MainActor in self?.failure = self?.current.websiteItem == nil ? "This video could not be played. Check the connection and your server’s compatible playback formats." : "This server’s stream could not be played. Try another server or retry with a fresh stream." } }
@@ -111,10 +111,10 @@ import Observation
         subtitle = externalCaptions ? captionCues.first { $0.start <= at && $0.end > at }?.text ?? "" : ""
         if abs(seconds - lastSaved) >= 5 { save(); lastSaved = seconds }
     }
-    func save() {
+    func save(force: Bool = false) {
         let seconds = player.currentTime().seconds
         guard player.currentItem != nil, seconds.isFinite, !completed else { return }
-        store?.record(current, seconds: seconds, duration: player.currentItem?.duration.seconds ?? current.duration)
+        store?.record(current, seconds: seconds, duration: player.currentItem?.duration.seconds ?? current.duration, force: force)
     }
     func skip(_ seconds: Double) {
         let current = player.currentTime().seconds
@@ -191,7 +191,7 @@ import Observation
         statusObserver = nil; controlObserver = nil
     }
     private func clientConnection(_ api: MediaAPI) async throws -> WebsiteConnection { try await WebsiteLibrary(source: api.source, endpoint: api.base).discover() }
-    func close() { countdownTask?.cancel(); pip?.stopPictureInPicture(); closed = true; loadEpoch = UUID(); setupTask?.cancel(); save(); player.pause(); stopObserving(); player.replaceCurrentItem(with: nil) }
+    func close() { countdownTask?.cancel(); pip?.stopPictureInPicture(); closed = true; loadEpoch = UUID(); setupTask?.cancel(); save(force: true); player.pause(); stopObserving(); player.replaceCurrentItem(with: nil) }
 }
 final class VideoSurface: UIView {
     override class var layerClass: AnyClass { AVPlayerLayer.self }
@@ -278,7 +278,7 @@ struct PlaybackScreen: View {
         }.ignoresSafeArea().background(.black).foregroundStyle(.white).statusBarHidden().onAppear { if session == nil { session = PlayerSession(playback: playback, store: store) } }.onDisappear { retryTask?.cancel(); session?.close() }
             .sheet(item: Binding(get: { store.sourceSelection }, set: { store.sourceSelection = $0 }), onDismiss: { if resumeAfterSource, session?.failure == nil { session?.player.play() }; resumeAfterSource = false }) { SourcePicker(selection: $0).environment(store) }
             .onChange(of: store.playback?.revision) { _, _ in if let next = store.playback { Task { await session?.load(next.media, url: next.url) } } }
-            .onChange(of: scenePhase) { _, phase in if phase != .active { session?.save() } }
+            .onChange(of: scenePhase) { _, phase in if phase != .active { session?.save(force: true) } }
     }
     private func changeSource(_ session: PlayerSession) {
         resumeAfterSource = session.isPlaying; session.save(); session.player.pause()

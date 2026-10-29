@@ -94,6 +94,8 @@ export function cleanHeaders(headers: any, allowAuth = false) {
         "range",
         "depth",
         "accept-language",
+        "if-none-match",
+        "if-modified-since",
       ].includes(k.toLowerCase()) ||
       (allowAuth &&
         [
