@@ -392,3 +392,24 @@ body.player-open .web-notice {
     animation: none;
   }
 }
+
+/* Live channels that open on huhu.to look like the other channel buttons. */
+.web-app .channel-play {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 10px 18px;
+  border-radius: 22px;
+  background: #222;
+  color: #fff;
+  font-size: 15px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.web-app .channel-play:hover {
+  background: #383838;
+}
+.web-app .channel-play:focus-visible {
+  outline: 3px solid #a3d9f0;
+  outline-offset: 3px;
+}

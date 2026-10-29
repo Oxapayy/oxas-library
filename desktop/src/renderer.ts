@@ -348,7 +348,7 @@ function iptv() {
         const p = channelPrograms
           .get(m.id)
           ?.find((p: any) => p.start <= now && p.end > now);
-        return `<article class="channel">${image(m.poster) || '<span class="station" aria-hidden="true">▱</span>'}<div class="text"><strong>${esc(m.title)}</strong><small>${esc(p?.title || m.group || "Live TV")}</small>${p ? `<progress max="${p.end - p.start}" value="${now - p.start}"></progress>` : ""}${button("Program Guide", "guide", { id: m.id })}</div>${button("Play", "play", { id: m.id })}${button(m.favorite ? "★" : "☆", "favorite", { id: m.id })}</article>`;
+        return `<article class="channel">${image(m.poster) || '<span class="station" aria-hidden="true">▱</span>'}<div class="text"><strong>${esc(m.title)}</strong><small>${esc(p?.title || m.group || "Live TV")}</small>${p ? `<progress max="${p.end - p.start}" value="${now - p.start}"></progress>` : ""}${button("Program Guide", "guide", { id: m.id })}</div>${livePlay(m)}${button(m.favorite ? "★" : "☆", "favorite", { id: m.id })}</article>`;
       })
       .join("")}</div>${showMore("channels", rows.length)}` +
     (!rows.length
@@ -377,6 +377,14 @@ function downloads() {
           "Open a film or episode and choose Download. You can save an entire season from its series page.",
         ))
   );
+}
+// huhu.to live channels send plain HTTP streams that browsers block, so the
+// web version opens huhu.to's own Live TV page instead of a dead player.
+function livePlay(m: any) {
+  const source = webMode && state.sources.find((s: any) => s.id === m.sourceID);
+  if (source?.host === "huhu.to")
+    return `<a class="channel-play" href="https://huhu.to/#/channels" target="_blank" rel="noopener noreferrer" aria-label="${esc(`Play ${m.title} on huhu.to`)}">Play on huhu.to ↗</a>`;
+  return button("Play", "play", { id: m.id });
 }
 function providerAssistance(sourceID: string, context = "playback") {
   if (!webMode || !sourceID) return "";
