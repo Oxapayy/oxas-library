@@ -295,3 +295,100 @@ body.web-app {
 .web-app .sources-choices .server-link small {
   margin-top: 6px;
 }
+
+/* Ad-free viewing hint: a quiet floating card above the content, never modal. */
+.web-notice {
+  position: fixed;
+  z-index: 40;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  left: calc(50% + 114px);
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 228px - 32px));
+  padding: 20px 20px 16px 24px;
+  border-radius: 22px;
+  background: #1c1c1e;
+  box-shadow: 0 0 0 1px #ffffff1f, 0 16px 48px #000000a6;
+  color: #f5f5f7;
+  animation: web-notice-in .35s ease both;
+}
+.web-notice h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.web-notice p {
+  margin: 6px 0 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #a1a1a6;
+}
+.web-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.web-notice-actions a,
+.web-notice-actions button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 980px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.web-notice-primary {
+  background: #a3d9f0;
+  color: #000;
+}
+.web-notice-secondary {
+  background: #ffffff;
+  color: #000;
+}
+.web-app .web-notice-close {
+  margin-left: auto;
+  background: transparent;
+  color: #a1a1a6;
+}
+.web-notice-actions a:hover,
+.web-notice-actions button:hover {
+  filter: brightness(1.1);
+}
+.web-notice a:focus-visible,
+.web-notice button:focus-visible {
+  outline: 3px solid #a3d9f0;
+  outline-offset: 3px;
+}
+body.player-open .web-notice {
+  display: none;
+}
+@keyframes web-notice-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@media (max-width: 1000px) {
+  .web-notice {
+    left: calc(50% + 92px);
+    width: min(560px, calc(100% - 185px - 32px));
+  }
+}
+@media (max-width: 760px) {
+  /* Phones: full width above the floating tab bar. */
+  .web-notice {
+    left: 50%;
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 84px);
+    width: calc(100% - 28px);
+    padding: 18px 16px 14px 18px;
+  }
+  .web-app .web-notice-close {
+    margin-left: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .web-notice {
+    animation: none;
+  }
+}
