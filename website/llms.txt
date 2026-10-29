@@ -16,13 +16,13 @@
 - iPhone: version 1.3.1, iOS 18 or later, unsigned IPA installed with ESign or AltStore Classic.
 - Mac: version 1.0.1, macOS 14 or later, Apple Silicon and Intel.
 - Windows: version 1.0.1, Windows 10 or 11, x64 and ARM64.
-- Web: https://oxapay.cc/web in Chrome, Safari, Edge or Firefox.
+- Web: https://www.oxapay.cc/web in Chrome, Safari, Edge or Firefox.
 
 ## Links
 
-- [Website](https://oxapay.cc/)
-- [Download page](https://oxapay.cc/download)
-- [Web app](https://oxapay.cc/web)
+- [Website](https://www.oxapay.cc/)
+- [Download page](https://www.oxapay.cc/download)
+- [Web app](https://www.oxapay.cc/web)
 - [Source code on GitHub](https://github.com/Oxapayy/oxas-library) (MIT licence)
-- [Privacy Policy](https://oxapay.cc/privacy)
-- [Terms of Service](https://oxapay.cc/terms)
+- [Privacy Policy](https://www.oxapay.cc/privacy)
+- [Terms of Service](https://www.oxapay.cc/terms)
