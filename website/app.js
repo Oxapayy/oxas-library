@@ -1,46 +1,7 @@
 document.documentElement.classList.add('js');
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const releases = 'https://github.com/Oxapayy/oxas-library/releases/';
 
-// Each device gets its own file, facts and install note.
-const platforms = {
-  ios: {
-    title: 'For your iPhone', facts: 'Version 1.3.1 · iOS 18 or later · Unsigned IPA',
-    description: 'Sign and install the IPA with ESign or AltStore Classic. Keep the same signing identity when you update so your library stays in place. Oxa is not in AltStore PAL.',
-    extra: '<a class="text-link" href="https://faq.altstore.io/altstore-classic">AltStore Classic setup</a> · <a class="text-link" href="' + releases + 'tag/v1.3.1">Release notes and checksum</a>',
-    primary: ['Download for iPhone', releases + 'download/v1.3.1/Oxas-Library-v1.3.1-iOS-unsigned.ipa'],
-    secondary: ['Release notes', releases + 'tag/v1.3.1'],
-    image: ['assets/screens/series.jpg', 'Oxa’s Library on iPhone: American Dad! with its artwork', 589, 1280, true],
-    cta: ['Oxa’s Library 1.3.1 for iPhone.', 'Download'],
-  },
-  macos: {
-    title: 'For your Mac', facts: 'Version 1.0.1 · macOS 14 or later',
-    description: 'Open the disk image and drag Oxa’s Library to Applications. The app is ad hoc signed and not notarized, so macOS may ask you to allow it in Privacy & Security.',
-    extra: '<a class="text-link" href="' + releases + 'tag/desktop-v1.0.1">Release notes and checksums</a>',
-    primary: ['Download for Apple Silicon', releases + 'download/desktop-v1.0.1/Oxas-Library-Desktop-1.0.1-macOS-arm64.dmg'],
-    secondary: ['Download for Intel', releases + 'download/desktop-v1.0.1/Oxas-Library-Desktop-1.0.1-macOS-x64.dmg'],
-    image: ['assets/screens/mac-library.jpg', 'Oxa’s Library on a Mac', 1300, 880, false],
-    cta: ['Oxa’s Library 1.0.1 for your Mac.', 'Download'],
-  },
-  windows: {
-    title: 'For your PC', facts: 'Version 1.0.1 · Windows 10 or 11 · x64 and ARM64',
-    description: 'One installer picks the right version for your PC. It has no publisher certificate yet, so Windows may show a security prompt before it runs.',
-    extra: '<a class="text-link" href="' + releases + 'tag/desktop-v1.0.1">Release notes and checksums</a>',
-    primary: ['Download for Windows', releases + 'download/desktop-v1.0.1/Oxa-Library-Setup-1.0.1.exe'],
-    secondary: ['Release notes', releases + 'tag/desktop-v1.0.1'],
-    image: ['assets/screens/mac-library.jpg', 'The Oxa’s Library desktop app', 1300, 880, false],
-    cta: ['Oxa’s Library 1.0.1 for Windows.', 'Download'],
-  },
-  web: {
-    title: 'In your browser', facts: 'Chrome, Safari, Edge and Firefox · Nothing to install',
-    description: 'Open the web app and your library is there, with the same watchlist and progress when you sign in. Many hosted servers open on their own site; downloads stay in the apps.',
-    extra: '',
-    primary: ['Open in your browser', '/web'],
-    secondary: ['All downloads', releases],
-    image: ['assets/screens/mac-library.jpg', 'Oxa’s Library in a browser window', 1300, 880, false],
-    cta: ['Oxa’s Library in your browser.', 'Open'],
-  },
-};
+// The visitor's own device gets the first download card and the hero button.
 function detectPlatform() {
   const ua = navigator.userAgent, platform = navigator.userAgentData?.platform || navigator.platform || '';
   if (/iPhone|iPad|iPod/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
@@ -48,61 +9,44 @@ function detectPlatform() {
   if (/Win/.test(platform) || /Windows/.test(ua)) return 'windows';
   return 'web';
 }
-const tabs = [...document.querySelectorAll('[data-platform]')];
-function setPlatform(tab) {
-  const data = platforms[tab.dataset.platform];
-  for (const item of tabs) { item.setAttribute('aria-selected', String(item === tab)); item.tabIndex = item === tab ? 0 : -1; }
-  document.querySelector('#platform-panel').setAttribute('aria-labelledby', tab.id);
-  document.querySelector('#platform-title').textContent = data.title;
-  document.querySelector('#platform-facts').textContent = data.facts;
-  document.querySelector('#platform-description').textContent = data.description;
-  const extra = document.querySelector('#platform-extra');
-  extra.innerHTML = data.extra; extra.hidden = !data.extra;
-  for (const [id, [label, href]] of [['#action-primary', data.primary], ['#action-secondary', data.secondary]]) {
-    const link = document.querySelector(id); link.textContent = label; link.href = href;
-  }
-  const image = document.querySelector('#plate-image'), [src, alt, width, height, phone] = data.image;
-  if (!image.src.endsWith(src)) { image.src = src; image.width = width; image.height = height; }
-  image.alt = alt; image.classList.toggle('phone', phone);
+const heroLabels = { macos: 'Download for Mac', ios: 'Download for iPhone', windows: 'Download for Windows', web: 'Open in browser' };
+const card = document.querySelector(`.platform[data-platform="${detectPlatform()}"]`);
+const hero = document.querySelector('#hero-download');
+if (card) {
+  card.classList.add('current');
+  card.querySelector('.platform-tag').hidden = false;
+  card.parentElement.prepend(card);
 }
-for (const tab of tabs) {
-  tab.addEventListener('click', () => setPlatform(tab));
-  tab.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    let n = tabs.indexOf(tab);
-    n = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (n + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-    setPlatform(tabs[n]); tabs[n].focus();
+if (card && hero) {
+  hero.href = card.querySelector('.button').href;
+  hero.textContent = heroLabels[card.dataset.platform];
+  // The web card's browser link already sits beside the hero button.
+  if (card.dataset.platform === 'web') hero.nextElementSibling.hidden = true;
+}
+
+// Cookie notice. Oxa sets no optional cookies, so both choices only record the answer.
+const consent = document.querySelector('#consent'), consentKey = 'oxa-cookie-choice';
+function savedChoice() { try { return localStorage.getItem(consentKey); } catch { return null; } }
+if (consent) {
+  consent.hidden = !!savedChoice();
+  for (const button of consent.querySelectorAll('[data-consent]')) button.addEventListener('click', () => {
+    try { localStorage.setItem(consentKey, button.dataset.consent); } catch {}
+    consent.hidden = true;
+  });
+  for (const button of document.querySelectorAll('[data-consent-open]')) button.addEventListener('click', () => {
+    consent.hidden = false;
+    consent.querySelector(`[data-consent="${savedChoice() || 'declined'}"]`).focus();
   });
 }
 
-// The visitor’s own device decides the download section and the closing word.
-const detected = detectPlatform(), own = platforms[detected];
-setPlatform(tabs.find(tab => tab.dataset.platform === detected));
-const cta = document.querySelector('#cta');
-cta.href = own.primary[1];
-document.querySelector('#cta-sentence').textContent = own.cta[0];
-document.querySelector('#cta-word').textContent = own.cta[1];
-cta.setAttribute('aria-label', own.primary[0]);
-
-// Feature names explain themselves in the empty columns beside them.
-const detail = document.querySelector('.feature-detail');
-for (const item of document.querySelectorAll('[data-detail]')) {
-  const show = () => {
-    document.querySelector('[data-detail][aria-current="true"]')?.removeAttribute('aria-current');
-    item.setAttribute('aria-current', 'true'); detail.textContent = item.dataset.detail;
-  };
-  item.addEventListener('mouseenter', show); item.addEventListener('focus', show); item.addEventListener('click', show);
-}
-
-// Entrances: heading, then text, then picture, once per section.
+// A brief arrival for each block, once.
 if ('IntersectionObserver' in window && !reduceMotion.matches) {
-  for (const section of document.querySelectorAll('section, .cta')) {
-    section.querySelectorAll('.reveal').forEach((element, index) => element.style.setProperty('--delay', Math.min(index, 5) * 80 + 'ms'));
+  for (const group of document.querySelectorAll('.hero, .page-hero, .tiles, .platforms, .guide-grid, section')) {
+    group.querySelectorAll(':scope > .reveal, :scope > .section-head > .reveal').forEach((element, index) => element.style.setProperty('--delay', Math.min(index, 5) * 70 + 'ms'));
   }
   const observer = new IntersectionObserver(entries => {
     for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.add('in'); observer.unobserve(entry.target); }
-  }, { threshold: .12, rootMargin: '0px 0px -6% 0px' });
+  }, { threshold: .1 });
   document.querySelectorAll('.reveal').forEach(element => observer.observe(element));
 } else document.querySelectorAll('.reveal').forEach(element => element.classList.add('in'));
 

@@ -35,7 +35,7 @@ if account:
 marketing = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 app = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://image.tmdb.org; media-src 'self' blob: https:; connect-src 'self'" + origin + " https:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 rows = []
-for route in ['/', '/index.html', '/404.html', '/assets/*', '/styles.css', '/app.js']:
+for route in ['/', '/index.html', '/404.html', '/download', '/download.html', '/terms', '/terms.html', '/privacy', '/privacy.html', '/assets/*', '/styles.css', '/app.js']:
     rows += [route, '  Content-Security-Policy: ' + marketing, '']
 for route in ['/web', '/web/*']:
     # Video servers often refuse foreign referrers but accept none.
