@@ -13,9 +13,9 @@
 
 ## Platforms and downloads
 
-- iPhone: version 1.3.2, iOS 18 or later, unsigned IPA installed with ESign or AltStore Classic.
-- Mac: version 1.0.2, macOS 14 or later, Apple Silicon and Intel.
-- Windows: version 1.0.2, Windows 10 or 11, x64 and ARM64.
+- iPhone: version 1.3.3, iOS 18 or later, unsigned IPA installed with ESign or AltStore Classic.
+- Mac: version 1.0.3, macOS 14 or later, Apple Silicon and Intel.
+- Windows: version 1.0.3, Windows 10 or 11, x64 and ARM64.
 - Web: https://www.oxapay.cc/web in Chrome, Safari, Edge or Firefox.
 
 ## Links
