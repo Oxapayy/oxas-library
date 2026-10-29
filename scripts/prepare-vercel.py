@@ -37,7 +37,7 @@ shutil.copy(root / 'scripts' / 'vercel' / 'oxa.mjs', out / 'api' / 'oxa.mjs')
 def vercel_source(route):
     if route.endswith('/*'):
         return route[:-2] + '/(.*)'
-    return route
+    return route.replace('*', '(.*)')
 
 headers = [{'source': '/(.*)', 'headers': [
     {'key': 'X-Content-Type-Options', 'value': 'nosniff'},

@@ -68,9 +68,19 @@ const sourceAttempts = new Set<string>();
 const csp =
   "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' oxa: data:; media-src 'self' oxa: blob:; connect-src 'self' oxa:; worker-src blob:; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'";
 const wireID = (id: string) => hash(id);
+// Wire IDs are SHA-256 hashes. Index them once per media array instead of
+// hashing the whole catalogue on every progress tick or detail lookup.
+let wireIndex: { media: Media[]; length: number; byID: Map<string, Media> } | undefined;
 function item(id: string) {
+  const media = disk.state.media;
+  const build = () =>
+    (wireIndex = { media, length: media.length, byID: new Map(media.map((m) => [wireID(m.id), m])) });
+  if (!wireIndex || wireIndex.media !== media || wireIndex.length !== media.length) build();
+  let indexed = wireIndex.byID.get(id);
+  // Merges replace rows in place; rebuild once when the cached row went stale.
+  if (indexed && !media.includes(indexed)) indexed = build().byID.get(id);
   const m =
-    disk.state.media.find((m) => wireID(m.id) === id) ||
+    indexed ||
     disk.state.transfers.find(
       (t) => t.state === "ready" && wireID(t.media.id) === id,
     )?.media;
@@ -603,6 +613,26 @@ async function execute(action: string, args: any = {}) {
     case "source.add":
     case "source.edit": {
       const { s, c } = sourceInput(args);
+      if (action === "source.add") {
+        // Adding the same server again updates it instead of doubling the library.
+        const same = (raw: string) => {
+          try {
+            const u = new URL(raw);
+            return u.origin.toLowerCase() + u.pathname.replace(/\/+$/, "");
+          } catch {
+            return raw;
+          }
+        };
+        const existing = disk.state.sources.find(
+          (x) =>
+            x.kind === s.kind &&
+            same(disk.state.credentials[x.id]?.endpoint || "") === same(c.endpoint),
+        );
+        if (existing) {
+          s.id = existing.id;
+          disk.state.sources = disk.state.sources.filter((x) => x.id !== s.id);
+        }
+      }
       if (action === "source.edit") {
         const old = disk.state.sources.find((x) => x.id === s.id);
         if (!old) throw Error("Source no longer exists.");
@@ -623,6 +653,9 @@ async function execute(action: string, args: any = {}) {
         disk.state.media = disk.state.media.filter((x) => x.sourceID !== s.id);
         disk.state.programs = disk.state.programs.filter(
           (x) => x.sourceID !== s.id,
+        );
+        disk.state.pages = (disk.state.pages || []).filter(
+          (x: any) => x.sourceID !== s.id,
         );
         delete disk.state.credentials[s.id];
         disk.save();
@@ -653,11 +686,17 @@ async function execute(action: string, args: any = {}) {
       for (const p of (disk.state.pages || []).filter((p: any) => p.cursor)) {
         const s = disk.state.sources.find((s) => s.id === p.sourceID);
         if (!s) continue;
-        const provider = api(s);
-        const result = await provider.page(p, await provider.discover());
-        guard();
-        merge(result.items);
-        Object.assign(p, result.page);
+        // One offline source must not stop the others from loading more.
+        try {
+          const provider = api(s);
+          const result = await provider.page(p, await provider.discover());
+          guard();
+          merge(result.items);
+          Object.assign(p, result.page);
+        } catch (error) {
+          guard();
+          sourceErrors.set(s.id, "Could not load more from this source. Retry later.");
+        }
       }
       disk.save();
       changed();
@@ -900,7 +939,7 @@ async function execute(action: string, args: any = {}) {
         website: "https://oxapay.cc",
         github: "https://github.com/Oxapayy/oxas-library",
         release:
-          "https://github.com/Oxapayy/oxas-library/releases/tag/desktop-v1.0.0",
+          `https://github.com/Oxapayy/oxas-library/releases/tag/desktop-v${app.getVersion()}`,
       };
       if (targets[args.target]) await shell.openExternal(targets[args.target]);
       return true;

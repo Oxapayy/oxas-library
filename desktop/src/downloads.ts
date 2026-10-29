@@ -108,6 +108,13 @@ export class Downloads {
       response.stream.resume();
       throw Error("The source returned a web page instead of video.");
     }
+    // Append only when the server continues exactly where the partial file ends.
+    const range = /^bytes (\d+)-/.exec(response.headers["content-range"] || "");
+    if (response.status === 206 && existing && range && Number(range[1]) !== existing) {
+      response.stream.resume();
+      fs.rmSync(partial, { force: true });
+      return this.file(url, dest, opts, signal, update);
+    }
     if (response.status !== 206) existing = 0;
     const expected = Number(response.headers["content-length"] || 0) + existing;
     const output = fs.createWriteStream(partial, {
@@ -283,6 +290,10 @@ export class Downloads {
             t.format = "hls";
           } else {
             const dest = path.join(folder, entry);
+            // A retry resolves a fresh stream, which may be another file or
+            // mirror. Never append its bytes to a partial file from a different URL.
+            if (t.partURL !== play.url) fs.rmSync(dest + ".part", { force: true });
+            t.partURL = play.url;
             t.bytes = await this.file(
               play.url,
               dest,

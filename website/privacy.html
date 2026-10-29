@@ -52,7 +52,7 @@
   <p>Oxa’s Library is an open-source project. The project’s maintainer is responsible for the data processing described here. You can reach us by opening an issue on <a class="link" href="https://github.com/Oxapayy/oxas-library/issues">GitHub</a>.</p>
 
   <h2>2. Visiting the website</h2>
-  <p>When you open oxapay.cc, our hosting provider Vercel Inc. and our DNS and security provider Cloudflare, Inc. process technical data that every website request contains: your IP address, the page requested, the date and time, and your browser’s user agent. This is needed to deliver the site and to protect it from abuse. We don’t use this data to identify you or build profiles.</p>
+  <p>When you open oxapay.cc, our hosting provider Vercel Inc. and our DNS and security provider Cloudflare, Inc. process technical data that every website request contains: your IP address, the page requested, the date and time, and your browser’s user agent. This is needed to deliver the site and to protect it from abuse. To limit abuse of the web app’s server function, it keeps your IP address in memory for up to one minute. We don’t use this data to identify you or build profiles.</p>
 
   <h2>3. Cookies and storage on your device</h2>
   <p>Oxa doesn’t use tracking, advertising or analytics cookies. It only stores what it needs to work:</p>
@@ -64,7 +64,7 @@
   <p>Because this storage is strictly necessary, choosing Decline or Accept doesn’t change how Oxa works; no optional cookies are set either way. You can change your choice at any time with Cookie Settings at the bottom of each page.</p>
 
   <h2>4. Your optional account</h2>
-  <p>If you create an account, we process your email address and password, and the library data you choose to sync: watchlist, watch progress, history and source connections. Source connections are stored encrypted with a key derived from your password. Passwords are stored by our account provider in hashed form, never in plain text. The account service is provided by Supabase, Inc., which hosts the account database on our behalf.</p>
+  <p>If you create an account, we process your email address and password, and the library data you choose to sync: watchlist, watch progress, history and source connections. Synced data, including source connections, is stored in the account database, where access rules let only your signed-in account read it. Source connections are not end-to-end encrypted, so only sync servers you are comfortable storing there. Your account password is stored by our account provider in hashed form, never in plain text. The account service is provided by Supabase, Inc., which hosts the account database on our behalf.</p>
   <p>We use this data only to sign you in and to sync your library between your devices. You can delete your account and its synced data at any time in Settings › Account › Delete Account.</p>
 
   <h2>5. Using the web app with your sources</h2>

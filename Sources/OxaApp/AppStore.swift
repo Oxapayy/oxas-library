@@ -415,7 +415,10 @@ import AVFoundation
             if state.followedSeries?[key] == nil { let known = Set(catalog.filter { $0.sourceID == item.sourceID && $0.seriesID == seriesID && $0.kind == .episode }.map(\.id)); state.followedSeries?[key] = known }
             state.newEpisodeIDs?.remove(item.id)
         }
-        state.progress[item.id] = WatchProgress(seconds: seconds, duration: duration.isFinite && duration > 0 ? duration : item.duration, completed: ended)
+        let total = duration.isFinite && duration > 0 ? duration : item.duration
+        // Match desktop and web: the last 30 seconds (or 3 %) count as watched.
+        let finished = ended || (total > 0 && seconds >= total - min(30, total * 0.03))
+        state.progress[item.id] = WatchProgress(seconds: seconds, duration: total, completed: finished)
         save(); account?.progressChanged(item)
     }
     func nextEpisode(_ item: Media) -> Media? {
@@ -502,7 +505,11 @@ import AVFoundation
     }
     func leavePreview() {
         preview = false
-        do { state = LibraryState(try disk?.load() ?? LibrarySnapshot()) } catch { storageAvailable = false; self.error = "The saved library could not be opened. Existing data was preserved." }
+        // Return to the library that owns this scope; the guest file is not the account's.
+        do {
+            if let owner = accountID { state = LibraryState(try disk?.loadNamed("library-\(owner)", as: LibrarySnapshot.self) ?? LibrarySnapshot()) }
+            else { state = LibraryState(try disk?.load() ?? LibrarySnapshot()) }
+        } catch { storageAvailable = false; self.error = "The saved library could not be opened. Existing data was preserved." }
     }
     #if DEBUG
     private func enablePerformanceFixture() {

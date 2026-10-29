@@ -47,7 +47,9 @@ class BrowserEngine {
     setInterval(() => {
       if (!document.hidden) {
         void this.cloud.sync().catch(() => {});
-        for (const source of this.disk.state.sources) void this.refresh(source.id);
+        // Catalogs change rarely; refetch through the gateway at most hourly.
+        const stale = appleNow() - 60 * 60;
+        for (const source of this.disk.state.sources) if (!source.refreshedAt || source.refreshedAt < stale) void this.refresh(source.id);
       }
     }, 10 * 60 * 1000);
   }
@@ -293,6 +295,7 @@ class BrowserEngine {
         const source = this.disk.state.sources.find(s => s.id === args.id); if (!source) return this.view();
         this.cloud.source(source, true); this.disk.state.sources = this.disk.state.sources.filter(s => s.id !== source.id);
         this.disk.state.media = this.disk.state.media.filter(m => m.sourceID !== source.id); this.disk.state.programs = this.disk.state.programs.filter(p => p.sourceID !== source.id); delete this.disk.state.credentials[source.id];
+        this.disk.state.pages = (this.disk.state.pages || []).filter(p => p.sourceID !== source.id); this.errors.delete(source.id);
         if (this.active?.media.sourceID === source.id) this.active = null;
         this.disk.save(); await this.disk.flushPending(); this.invalidate(); return this.view();
       }
@@ -305,8 +308,11 @@ class BrowserEngine {
         check(); this.merge(rows); this.disk.save(); this.changed(); return ordered(rows).map(this.getProjection().wire);
       }
       case 'more': {
-        for (const page of (this.disk.state.pages || []).filter(p => p.cursor)) {
-          const check = this.guard(page.sourceID); const result = await this.rpc(page.sourceID, 'page', { page }); check(); this.merge(result.items); Object.assign(page, result.page);
+        for (const page of (this.disk.state.pages || []).filter(p => p.cursor && this.disk.state.sources.some(s => s.id === p.sourceID))) {
+          // One offline source must not stop the others from loading more.
+          const check = this.guard(page.sourceID);
+          try { const result = await this.rpc(page.sourceID, 'page', { page }); check(); this.merge(result.items); Object.assign(page, result.page); }
+          catch (error: any) { try { check(); this.errors.set(page.sourceID, error.message || 'Could not load more from this source.'); } catch { break; } }
         }
         this.disk.save(); this.changed(); return this.view();
       }

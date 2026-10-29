@@ -11,9 +11,12 @@ async function start() {
   const notice = document.querySelector<HTMLElement>('#ad-notice');
   if (!notice || await isBrave()) return;
   const welcome = document.querySelector<HTMLDialogElement>('#account');
+  const player = document.querySelector<HTMLElement>('#player');
   const show = () => {
     // Wait while a dialog such as the welcome screen is open.
     if (welcome?.open) welcome.addEventListener('close', show, { once: true });
+    // Never cover a playing video or an open sheet; check again shortly.
+    else if ((player && !player.hidden) || document.querySelector('dialog[open]')) setTimeout(show, 30 * 1000);
     else notice.hidden = false;
   };
   // Give the app a moment to open its welcome dialog first.

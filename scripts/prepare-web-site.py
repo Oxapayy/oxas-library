@@ -40,5 +40,8 @@ for route in ['/', '/index.html', '/404.html', '/download', '/download.html', '/
 for route in ['/web', '/web/*']:
     # Video servers often refuse foreign referrers but accept none.
     rows += [route, '  Content-Security-Policy: ' + app, '  Cache-Control: public, max-age=0, must-revalidate', '  Referrer-Policy: no-referrer', '']
+# Content-hashed bundles never change; let browsers keep them for a year.
+for route in ['/web/main.*', '/web/app.*']:
+    rows += [route, '  Cache-Control: public, max-age=31536000, immutable', '']
 (publish / '_headers').write_text('\n'.join(rows))
 print('Prepared browser app, clean routes and distinct security policies.')

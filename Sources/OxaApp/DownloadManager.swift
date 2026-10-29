@@ -19,16 +19,29 @@ import Observation
     private var tasks: [String: URLSessionTask] = [:]
     private var liveAssets: [String: AVURLAsset] = [:]
     private var progressGate = DownloadProgressGate()
+    private var restored = false
+    /// After a background relaunch, callbacks can arrive before restore() has
+    /// listed the sessions' tasks. Adopt such a task instead of dropping its file.
+    private func owns(_ task: URLSessionTask) -> String? {
+        guard let id = task.taskDescription else { return nil }
+        if tasks[id] === task { return id }
+        guard !restored, tasks[id] == nil, store?.state.transfers.contains(where: { $0.id == id && $0.state == .downloading }) == true else { return nil }
+        tasks[id] = task; return id
+    }
     private lazy var files: URLSession = {
         let config = URLSessionConfiguration.background(withIdentifier: "app.oxas.library.files")
         config.allowsCellularAccess = true; config.isDiscretionary = false
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
-    private lazy var streams: AVAssetDownloadURLSession = {
-        let config = URLSessionConfiguration.background(withIdentifier: "app.oxas.library.hls")
-        config.allowsCellularAccess = true; config.isDiscretionary = false
+    private lazy var streams: AVAssetDownloadURLSession = streamSession("app.oxas.library.hls", cellular: true)
+    // Asset tasks can't opt out of cellular one by one, so Wi-Fi-only HLS
+    // downloads use their own background session.
+    private lazy var wifiStreams: AVAssetDownloadURLSession = streamSession("app.oxas.library.hls.wifi", cellular: false)
+    private func streamSession(_ identifier: String, cellular: Bool) -> AVAssetDownloadURLSession {
+        let config = URLSessionConfiguration.background(withIdentifier: identifier)
+        config.allowsCellularAccess = cellular; config.isDiscretionary = false
         return AVAssetDownloadURLSession(configuration: config, assetDownloadDelegate: self, delegateQueue: .main)
-    }()
+    }
     init(store: AppStore) {
         self.store = store; super.init()
         Task { await restore() }
@@ -36,7 +49,8 @@ import Observation
     private func restore() async {
         guard store?.preview != true else { return }
         let context = store?.libraryEpoch
-        let runningFiles = await files.allTasks; let runningStreams = await streams.allTasks
+        let runningFiles = await files.allTasks; let runningStreams = await streams.allTasks + wifiStreams.allTasks
+        restored = true
         guard context == store?.libraryEpoch else { return }
         for task in runningFiles + runningStreams { if let id = task.taskDescription { tasks[id] = task; if task.state == .suspended { task.resume() } } }
         guard let store else { return }
@@ -51,7 +65,7 @@ import Observation
         let known = Array(tasks.values); tasks.removeAll(); liveAssets.removeAll()
         for task in known { task.cancel() }
         for task in await files.allTasks { task.cancel() }
-        for task in await streams.allTasks { task.cancel() }
+        for task in await streams.allTasks + wifiStreams.allTasks { task.cancel() }
         resolving.removeAll(); generations.removeAll(); cancelled.removeAll()
     }
     func enqueuePrepared(_ media: Media) { enqueue(media) }
@@ -110,7 +124,8 @@ import Observation
             if isHLS {
                 let asset = AVURLAsset(url: url, options: prepared.playbackHeaders.map { ["AVURLAssetHTTPHeaderFieldsKey": $0] })
                 liveAssets[transfer.id] = asset
-                guard let task = streams.makeAssetDownloadTask(asset: asset, assetTitle: transfer.media.title, assetArtworkData: nil, options: nil) else { throw OxaError.message("This stream cannot be saved offline.") }
+                let session = store.state.preferences.cellular ? streams : wifiStreams
+                guard let task = session.makeAssetDownloadTask(asset: asset, assetTitle: transfer.media.title, assetArtworkData: nil, options: nil) else { throw OxaError.message("This stream cannot be saved offline.") }
                 task.taskDescription = transfer.id; tasks[transfer.id] = task; task.resume()
             } else {
                 var request = URLRequest(url: url)
@@ -144,14 +159,14 @@ import Observation
         if cancelled.contains(id) { return }; update(id) { $0.state = .failed; $0.error = message }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let id = downloadTask.taskDescription, tasks[id] === downloadTask, !cancelled.contains(id) else { return }
+        guard let id = owns(downloadTask), !cancelled.contains(id) else { return }
         guard progressGate.shouldPublish(id, at: ProcessInfo.processInfo.systemUptime) else { return }
         // Persist queue/terminal states and the background snapshot. Transient
         // byte counters do not need to re-encode the complete catalog.
         update(id, persist: false) { $0.bytes = totalBytesWritten; $0.fraction = totalBytesExpectedToWrite > 0 ? min(0.99, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)) : 0 }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let id = downloadTask.taskDescription, tasks[id] === downloadTask, !cancelled.contains(id), let root = store?.disk?.mediaRoot else { return }
+        guard let id = owns(downloadTask), !cancelled.contains(id), let root = store?.disk?.mediaRoot else { return }
         guard let response = downloadTask.response as? HTTPURLResponse, (200...299).contains(response.statusCode) else { fail(id, "The server rejected this download. Check download permissions and retry."); return }
         if let mime = response.mimeType, mime.contains("text/html") || mime.contains("application/json") { fail(id, "The server returned a page instead of a video file."); return }
         let ext = downloadTask.originalRequest?.url?.pathExtension.lowercased() ?? ""
@@ -164,14 +179,14 @@ import Observation
         } catch { fail(id, "Could not save the video. Check free storage and retry.") }
     }
     func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, didLoad timeRange: CMTimeRange, totalTimeRangesLoaded loadedTimeRanges: [NSValue], timeRangeExpectedToLoad: CMTimeRange) {
-        guard let id = assetDownloadTask.taskDescription, tasks[id] === assetDownloadTask else { return }
+        guard let id = owns(assetDownloadTask) else { return }
         guard progressGate.shouldPublish(id, at: ProcessInfo.processInfo.systemUptime) else { return }
         let expected = timeRangeExpectedToLoad.duration.seconds
         let actual = loadedTimeRanges.reduce(0.0) { $0 + $1.timeRangeValue.duration.seconds }
         update(id, persist: false) { $0.fraction = expected.isFinite && expected > 0 ? min(0.99, actual / expected) : 0 }
     }
     func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let id = assetDownloadTask.taskDescription, tasks[id] === assetDownloadTask, !cancelled.contains(id), let root = store?.disk?.mediaRoot else { return }
+        guard let id = owns(assetDownloadTask), !cancelled.contains(id), let root = store?.disk?.mediaRoot else { return }
         _ = root
         let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path + "/"
         guard location.standardizedFileURL.path.hasPrefix(home) else { fail(id, "The offline stream location could not be saved."); return }
@@ -181,7 +196,7 @@ import Observation
         update(id) { $0.systemRelativePath = path; $0.fraction = 0.99; $0.error = nil }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let id = task.taskDescription, tasks[id] === task else { return }
+        guard let id = owns(task) else { return }
         progressGate.remove(id)
         tasks.removeValue(forKey: id); liveAssets.removeValue(forKey: id)
         if let error, !cancelled.contains(id) { fail(id, store?.safeMessage(error) ?? "Download failed. Try again.") }
