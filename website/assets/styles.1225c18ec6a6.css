@@ -231,6 +231,12 @@ section.download-cards + section { margin-top: 120px; }
   .legal-page { width: calc(100% - 32px); padding-top: 48px; }
 }
 
+/* Very narrow phones: the logo alone names the site in the bar. */
+@media (max-width: 400px) {
+  .brand-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .brand img { width: 32px; height: 32px; border-radius: 8px; }
+}
+
 /* 404 page */
 .error-page { min-height: 100svh; display: grid; place-items: center; padding: 24px; text-align: center; }
 .error-content { max-width: 640px; }
