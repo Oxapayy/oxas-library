@@ -511,6 +511,12 @@ progress::-webkit-progress-value {
   color: #bbb;
   font-size: 13px;
 }
+.update-banner p {
+  margin: 0 0 12px;
+}
+.update-banner progress {
+  width: 100%;
+}
 dialog {
   border: 1px solid #ffffff26;
   color: #fff;

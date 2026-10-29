@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var removing: MediaSource?
     @State private var metadataKey = ""
     @State private var keySaved = false
+    @State private var checkingUpdate = false
+    @State private var updateMessage: String?
     var body: some View {
         @Bindable var store = store
         Form {
@@ -72,7 +74,18 @@ struct SettingsView: View {
             Section {
                 if store.preview { Button("Leave Preview Library") { store.leavePreview() } }
                 else { Button("Explore Preview Library") { store.enablePreview(); store.selectedTab = 0 }.disabled(!store.sources.isEmpty) }
-                Text("Version 1.3 · Personal library").font(.caption).foregroundStyle(OxaTheme.secondary)
+                if let update = store.availableUpdate { Link("Download Oxa’s Library \(update.version)", destination: update.page) }
+                else {
+                    Button(checkingUpdate ? "Checking for Updates…" : "Check for Updates") {
+                        checkingUpdate = true; updateMessage = nil
+                        Task {
+                            let reached = await store.checkForUpdate(manual: true); checkingUpdate = false
+                            if store.availableUpdate == nil { updateMessage = reached ? "You have the latest version." : "Could not check for updates. Check your connection." }
+                        }
+                    }.disabled(checkingUpdate)
+                }
+                if let updateMessage { Text(updateMessage).font(.caption).foregroundStyle(OxaTheme.secondary) }
+                Text("Version \(UpdateCheck.current) · Personal library").font(.caption).foregroundStyle(OxaTheme.secondary)
             }
         }.scrollContentBackground(.hidden).background(.black).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline).tint(.white)
             .sheet(item: $editing) { source in SourceEditor(existing: source).environment(store) }

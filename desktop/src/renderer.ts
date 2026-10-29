@@ -116,7 +116,11 @@ function allowedMediaURL(raw: string, caption = false, direct = false) {
     if (caption && url.protocol === "blob:")
       return url.origin === location.origin;
     // Web playback and TMDB artwork load straight from their HTTPS servers.
-    if (!caption && url.protocol === "https:" && (direct || url.hostname === "image.tmdb.org"))
+    if (
+      !caption &&
+      url.protocol === "https:" &&
+      (direct || url.hostname === "image.tmdb.org")
+    )
       return true;
     return (
       url.origin === location.origin &&
@@ -186,12 +190,30 @@ function render() {
   const html =
     (state.storageError
       ? `<div class="panel error" role="alert">${esc(state.storageError)} ${button("Retry Saving", "storage.retry")}</div>`
-      : "") + pageHTML;
+      : "") +
+    updateBanner() +
+    pageHTML;
   // Byte updates must not tear down unrelated posters, focus or image requests.
   if (html !== lastContentHTML) {
     content.innerHTML = html;
     lastContentHTML = html;
   }
+}
+function updateBanner() {
+  const u = state.update;
+  if (!u || u.state === "none") return "";
+  const v = esc(u.version);
+  const body =
+    u.state === "available"
+      ? `<p><strong>Oxa’s Library ${v} is available.</strong> You have version ${esc(state.version)}.</p><div class="source-actions">${button("Download Update", "update.download", {}, true)}${button("What’s New", "external", { target: "updateNotes" })}${button("Later", "update.skip")}</div>`
+      : u.state === "downloading"
+        ? `<p><strong>Downloading Oxa’s Library ${v}…</strong></p><progress max="1" value="${esc(u.fraction || 0)}"></progress>`
+        : u.state === "ready"
+          ? state.platform === "win32"
+            ? `<p><strong>Oxa’s Library ${v} is ready to install.</strong> The app closes while the installer runs. Your library stays in place.</p><div class="source-actions">${button("Install and Restart", "update.install", {}, true)}</div>`
+            : `<p><strong>Oxa’s Library ${v} is ready.</strong> Quit Oxa’s Library, then drag the new version into Applications and choose Replace. Your library stays in place.</p><div class="source-actions">${button("Open Installer", "update.install", {}, true)}</div>`
+          : `<p class="error">${esc(u.error || "The update could not be downloaded.")}</p><div class="source-actions">${button("Try Again", "update.download", {}, true)}${button("What’s New", "external", { target: "updateNotes" })}</div>`;
+  return `<section class="notice update-banner" role="status">${body}</section>`;
 }
 function poster(m: any) {
   return `<button class="poster" data-action="detail" data-args="${esc(JSON.stringify({ id: m.id }))}"><span class="cover">${image(m.poster || m.backdrop) || "▷"}</span><strong>${esc(m.title)}</strong><small>${esc(episodeLabel(m))}</small></button>`;
@@ -382,7 +404,10 @@ function downloads() {
 // web version opens huhu.to's own Live TV page instead of a dead player.
 function livePlay(m: any) {
   const source = webMode && state.sources.find((s: any) => s.id === m.sourceID);
-  if (source?.kind === "Library URL" && /^(www\.)?huhu\.to$/i.test(source.host || ""))
+  if (
+    source?.kind === "Library URL" &&
+    /^(www\.)?huhu\.to$/i.test(source.host || "")
+  )
     return `<a class="channel-play" href="https://huhu.to/#/channels" target="_blank" rel="noopener noreferrer" aria-label="${esc(`Play ${m.title} on huhu.to`)}">Play on huhu.to ↗</a>`;
   return button("Play", "play", { id: m.id });
 }
@@ -410,7 +435,7 @@ function settings() {
       )
       .join(
         "",
-      )}</select></label></div></section><section class="setting-section"><div><h3>Optional metadata</h3><p>Find artwork and descriptions with your own TMDB API read token. Searches send the title to TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p></div><div class="panel"><form id="metadata-form"><label>TMDB API read token<input name="token" type="password" autocomplete="off" placeholder="Paste a token, or leave blank to disable"></label><button type="submit">Save Metadata Settings</button></form></div></section>${downloadsEnabled ? `<section class="setting-section"><div><h3>Download location</h3><p>Offline video stays on this device. Moving the folder also moves saved downloads.</p></div><div class="panel"><p>${esc(p.downloadDirectory || "Application storage")}</p>${button("Choose Folder…", "downloadDirectory")}</div></section>` : ""}<section class="setting-section"><div><h3>Oxa’s Library</h3><p>Version ${esc(state.version)} · ${webMode ? "Web" : state.platform === "darwin" ? "macOS" : "Windows"}<br>Open source. Your collection. On your terms.</p></div><div class="panel">${button("Website", "external", { target: "website" })} ${button("Source Code", "external", { target: "github" })} ${button("Releases", "external", { target: "release" })} ${button("Licenses", "licenses")}</div></section><section class="setting-section"><div><h3>Support Oxa</h3><p>Optional donations help support development. All features stay free.</p></div><div class="panel"><p>Bitcoin · BTC</p><code>3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV</code>${button("Copy Bitcoin Address", "donation.copy", { network: "bitcoin" })}<p>Litecoin · LTC</p><code>MTToUVnMpepWixDhUPBBG1SgdmxjifArwF</code>${button("Copy Litecoin Address", "donation.copy", { network: "litecoin" })}</div></section></div>`
+      )}</select></label></div></section><section class="setting-section"><div><h3>Optional metadata</h3><p>Find artwork and descriptions with your own TMDB API read token. Searches send the title to TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p></div><div class="panel"><form id="metadata-form"><label>TMDB API read token<input name="token" type="password" autocomplete="off" placeholder="Paste a token, or leave blank to disable"></label><button type="submit">Save Metadata Settings</button></form></div></section>${downloadsEnabled ? `<section class="setting-section"><div><h3>Download location</h3><p>Offline video stays on this device. Moving the folder also moves saved downloads.</p></div><div class="panel"><p>${esc(p.downloadDirectory || "Application storage")}</p>${button("Choose Folder…", "downloadDirectory")}</div></section>` : ""}<section class="setting-section"><div><h3>Oxa’s Library</h3><p>Version ${esc(state.version)} · ${webMode ? "Web" : state.platform === "darwin" ? "macOS" : "Windows"}<br>Open source. Your collection. On your terms.</p></div><div class="panel">${button("Website", "external", { target: "website" })} ${button("Source Code", "external", { target: "github" })} ${button("Releases", "external", { target: "release" })}${webMode ? "" : ` ${button("Check for Updates", "update.check.manual")}`} ${button("Licenses", "licenses")}</div></section><section class="setting-section"><div><h3>Support Oxa</h3><p>Optional donations help support development. All features stay free.</p></div><div class="panel"><p>Bitcoin · BTC</p><code>3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV</code>${button("Copy Bitcoin Address", "donation.copy", { network: "bitcoin" })}<p>Litecoin · LTC</p><code>MTToUVnMpepWixDhUPBBG1SgdmxjifArwF</code>${button("Copy Litecoin Address", "donation.copy", { network: "litecoin" })}</div></section></div>`
   );
 }
 function sheet(title: string, html: string) {
@@ -734,7 +759,17 @@ async function next() {
   if (r.choices) {
     sheet(
       "Next Episode",
-      `<div class="sources-choices">${r.choices.filter((c: any) => c.kind !== "website").map((c: any) => (hostPage(c) ? serverChoice(c, "play", { id: r.media.id }) : button(c.name || "Server", "play", { id: r.media.id, choiceID: c.id }))).join("")}</div>${providerAssistance(r.media?.sourceID)}`,
+      `<div class="sources-choices">${r.choices
+        .filter((c: any) => c.kind !== "website")
+        .map((c: any) =>
+          hostPage(c)
+            ? serverChoice(c, "play", { id: r.media.id })
+            : button(c.name || "Server", "play", {
+                id: r.media.id,
+                choiceID: c.id,
+              }),
+        )
+        .join("")}</div>${providerAssistance(r.media?.sourceID)}`,
     );
   } else await showPlayer(r);
 }
@@ -990,6 +1025,10 @@ document.addEventListener("click", (event: any) => {
       if (a === "metadata.apply") {
         detailData = await cmd(a, args);
         drawDetail();
+        return;
+      }
+      if (a === "update.check.manual") {
+        await checkUpdates();
         return;
       }
       if (a === "licenses") {
@@ -1280,8 +1319,18 @@ window.oxa.onUpdate((update) => {
   if (!typing) render();
   else sidebar();
 });
+async function checkUpdates() {
+  state = await cmd("update.check", { manual: true });
+  render();
+  if (state.update?.state === "none")
+    toast(`Oxa’s Library ${state.version} is the latest version.`);
+}
 window.oxa.onAction((a) => {
   if (a === "add-source") sourceForm();
+  if (a === "check-updates" && !webMode) {
+    page = "Settings";
+    void run(checkUpdates);
+  }
 });
 void run(async () => {
   state = await cmd("state");

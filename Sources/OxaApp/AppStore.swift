@@ -25,6 +25,8 @@ import AVFoundation
     let identityVault: Vault
     var disk: EncryptedDisk?
     @ObservationIgnored let persistence = DiskWriteQueue()
+    var availableUpdate: AppRelease?
+    @ObservationIgnored private var updateCheckedAt: Date?
     init(disk injectedDisk: EncryptedDisk? = nil, vault: Vault = Vault(), identityVault: Vault = Vault(), startServices: Bool = true) {
         self.vault = vault; self.identityVault = identityVault
         do {
@@ -503,6 +505,19 @@ import AVFoundation
                        Media(id: "preview-film3", sourceID: id, providerID: "film3", title: "Northern Light", kind: .movie, overview: "Under a winter sky, two strangers follow the same road.", year: 2026, duration: 5700)]
         state.progress[episode.id] = WatchProgress(seconds: 1094, duration: 2820)
     }
+    /// Looks for a newer release at most every six hours unless the person asks.
+    /// Returns false when GitHub could not be reached.
+    @discardableResult func checkForUpdate(manual: Bool = false) async -> Bool {
+        if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--ui-test") }) { return true }
+        if !manual, let at = updateCheckedAt, Date().timeIntervalSince(at) < 6 * 3600 { return true }
+        updateCheckedAt = Date()
+        let release: AppRelease?
+        do { release = try await UpdateCheck.latest() } catch { return false }
+        if manual { UserDefaults.standard.removeObject(forKey: "skipped-update") }
+        availableUpdate = release?.version == UserDefaults.standard.string(forKey: "skipped-update") ? nil : release
+        return true
+    }
+    func skipUpdate() { UserDefaults.standard.set(availableUpdate?.version, forKey: "skipped-update"); availableUpdate = nil }
     func leavePreview() {
         preview = false
         // Return to the library that owns this scope; the guest file is not the account's.

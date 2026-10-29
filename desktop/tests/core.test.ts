@@ -957,3 +957,49 @@ test("account deletion reauthenticates and uses the edge function DELETE contrac
     "failed reauthentication never invokes deletion",
   );
 });
+test("update check picks the newest matching desktop installer", async () => {
+  const { pick, newer } = await import("../src/updates");
+  const asset = (name: string) => ({
+    name,
+    browser_download_url: "https://github.com/x/" + name,
+  });
+  const release = (tag: string, files: string[], extra = {}) => ({
+    tag_name: tag,
+    html_url: "https://github.com/x/" + tag,
+    assets: [...files.map(asset), asset("SHA256SUMS")],
+    ...extra,
+  });
+  assert.equal(newer("1.0.10", "1.0.9"), true);
+  assert.equal(newer("1.0.2", "1.0.2"), false);
+  assert.equal(newer("1.0.1", "1.0.2"), false);
+  const releases = [
+    release("v1.4.0", ["Oxas-Library-v1.4.0-iOS-unsigned.ipa"]),
+    release("desktop-v1.2.0", ["Oxa-Library-Setup-1.2.0.exe"], {
+      prerelease: true,
+    }),
+    release("desktop-v1.1.0", [
+      "Oxa-Library-Setup-1.1.0.exe",
+      "Oxas-Library-Desktop-1.1.0-macOS-arm64.dmg",
+      "Oxas-Library-Desktop-1.1.0-macOS-x64.dmg",
+    ]),
+    {
+      ...release("desktop-v1.0.3", ["Oxa-Library-Setup-1.0.3.exe"]),
+      assets: [asset("Oxa-Library-Setup-1.0.3.exe"), asset("SHA256SUMS.txt")],
+    },
+  ];
+  assert.equal(pick(releases, "1.0.2", "win32", "x64")?.version, "1.1.0");
+  assert.equal(
+    pick(releases, "1.0.2", "darwin", "arm64")?.file,
+    "Oxas-Library-Desktop-1.1.0-macOS-arm64.dmg",
+  );
+  assert.equal(
+    pick(releases, "1.0.2", "darwin", "x64")?.file,
+    "Oxas-Library-Desktop-1.1.0-macOS-x64.dmg",
+  );
+  assert.equal(pick(releases, "1.1.0", "win32", "x64"), undefined);
+  assert.equal(
+    pick(releases.slice(3), "1.0.2", "win32", "x64")?.sums,
+    "https://github.com/x/SHA256SUMS.txt",
+  );
+  assert.equal(pick(releases, "1.0.2", "linux", "x64"), undefined);
+});

@@ -36,6 +36,7 @@ import {
 } from "./model";
 import { urlCheck, local } from "./network";
 import { metadataSearch } from "./metadata";
+import { Updates } from "./updates";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "oxa",
@@ -56,6 +57,7 @@ if (testMode)
       path.join(app.getPath("temp"), "oxa-desktop-tests"),
   );
 let win: BrowserWindow, disk: Disk, cloud: Cloud, downloads: Downloads;
+let updates: Updates | undefined;
 const transport = new MediaTransport();
 let active: any = null;
 let refreshing = new Set<string>();
@@ -70,12 +72,23 @@ const csp =
 const wireID = (id: string) => hash(id);
 // Wire IDs are SHA-256 hashes. Index them once per media array instead of
 // hashing the whole catalogue on every progress tick or detail lookup.
-let wireIndex: { media: Media[]; length: number; byID: Map<string, Media> } | undefined;
+let wireIndex:
+  | { media: Media[]; length: number; byID: Map<string, Media> }
+  | undefined;
 function item(id: string) {
   const media = disk.state.media;
   const build = () =>
-    (wireIndex = { media, length: media.length, byID: new Map(media.map((m) => [wireID(m.id), m])) });
-  if (!wireIndex || wireIndex.media !== media || wireIndex.length !== media.length) build();
+    (wireIndex = {
+      media,
+      length: media.length,
+      byID: new Map(media.map((m) => [wireID(m.id), m])),
+    });
+  if (
+    !wireIndex ||
+    wireIndex.media !== media ||
+    wireIndex.length !== media.length
+  )
+    build();
   let indexed = wireIndex.byID.get(id);
   // Merges replace rows in place; rebuild once when the cached row went stale.
   if (indexed && !media.includes(indexed)) indexed = build().byID.get(id);
@@ -146,6 +159,14 @@ function view() {
     },
     version: app.getVersion(),
     platform: process.platform,
+    update:
+      updates &&
+      !(
+        updates.status.state === "available" &&
+        disk.read("ui", {}).skipUpdate === updates.status.version
+      )
+        ? updates.status
+        : { state: "none" },
   };
 }
 type UpdateSection = "all" | "transfers" | "progress";
@@ -626,7 +647,8 @@ async function execute(action: string, args: any = {}) {
         const existing = disk.state.sources.find(
           (x) =>
             x.kind === s.kind &&
-            same(disk.state.credentials[x.id]?.endpoint || "") === same(c.endpoint),
+            same(disk.state.credentials[x.id]?.endpoint || "") ===
+              same(c.endpoint),
         );
         if (existing) {
           s.id = existing.id;
@@ -695,7 +717,10 @@ async function execute(action: string, args: any = {}) {
           Object.assign(p, result.page);
         } catch (error) {
           guard();
-          sourceErrors.set(s.id, "Could not load more from this source. Retry later.");
+          sourceErrors.set(
+            s.id,
+            "Could not load more from this source. Retry later.",
+          );
         }
       }
       disk.save();
@@ -934,12 +959,40 @@ async function execute(action: string, args: any = {}) {
       }
       return view();
     }
+    case "update.check": {
+      if (!updates) throw Error("Updates are unavailable in this build.");
+      if (args.manual)
+        disk.write("ui", { ...disk.read("ui", {}), skipUpdate: undefined });
+      await updates.check();
+      if (updates.checkFailed)
+        throw Error("Could not check for updates. Check your connection.");
+      return view();
+    }
+    case "update.download":
+      void updates?.download();
+      return view();
+    case "update.install": {
+      if (!updates?.installer || !fs.existsSync(updates.installer))
+        throw Error("Download the update again.");
+      const failure = await shell.openPath(updates.installer);
+      if (failure) throw Error("The installer could not be opened.");
+      // The Windows installer replaces the running app, so close it first.
+      // On macOS the disk image opens in Finder for dragging into Applications.
+      if (process.platform === "win32") setTimeout(() => app.quit(), 1500);
+      return true;
+    }
+    case "update.skip":
+      disk.write("ui", {
+        ...disk.read("ui", {}),
+        skipUpdate: updates?.status.version,
+      });
+      return view();
     case "external": {
       const targets: any = {
         website: "https://oxapay.cc",
         github: "https://github.com/Oxapayy/oxas-library",
-        release:
-          `https://github.com/Oxapayy/oxas-library/releases/tag/desktop-v${app.getVersion()}`,
+        release: `https://github.com/Oxapayy/oxas-library/releases/tag/desktop-v${app.getVersion()}`,
+        updateNotes: updates?.offer?.notes,
       };
       if (targets[args.target]) await shell.openExternal(targets[args.target]);
       return true;
@@ -1123,6 +1176,10 @@ app.whenReady().then(async () => {
           label: "Help",
           submenu: [
             {
+              label: "Check for Updates…",
+              click: () => win?.webContents.send("oxa:action", "check-updates"),
+            },
+            {
               label: "Source Code",
               click: () =>
                 void shell.openExternal(
@@ -1138,6 +1195,15 @@ app.whenReady().then(async () => {
     await restoring;
     for (const s of disk.state.sources) void refresh(s.id);
     setInterval(() => void cloud.sync(), 60000);
+    if (!testMode) {
+      updates = new Updates(
+        app.getVersion(),
+        () => app.getPath("downloads"),
+        () => changed(),
+      );
+      setTimeout(() => void updates?.check(), 10000);
+      setInterval(() => void updates?.check(), 6 * 60 * 60 * 1000);
+    }
     setInterval(
       () => {
         for (const s of disk.state.sources) void refresh(s.id);

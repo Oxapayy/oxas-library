@@ -21,6 +21,7 @@ struct LibraryView: View {
                     Button { store.showAddSource = true } label: { Image(systemName: "plus").frame(width: 44, height: 44) }.accessibilityLabel("Add source")
                 }.padding(.horizontal, 20)
                 if !store.refreshing.isEmpty { Label("Refreshing sources… You can keep browsing.", systemImage: "arrow.trianglehead.2.clockwise.rotate.90").font(.caption).foregroundStyle(OxaTheme.secondary).padding(.horizontal, 20) }
+                if let update = store.availableUpdate { UpdateBanner(release: update).padding(.horizontal, 20) }
                 if store.preview {
                     HStack { Text("Preview library · illustrative titles").font(.caption).foregroundStyle(OxaTheme.secondary); Spacer(); Button("Exit") { store.leavePreview() }.font(.caption.weight(.semibold)) }.padding(.horizontal, 20)
                 }
@@ -202,5 +203,20 @@ struct MediaRow: View {
             Spacer(minLength: 0)
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(OxaTheme.secondary)
         }.accessibilityElement(children: .combine)
+    }
+}
+
+struct UpdateBanner: View {
+    @Environment(AppStore.self) private var store
+    let release: AppRelease
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Oxa’s Library \(release.version) is available").font(.headline)
+            Text("Download the new IPA and install it with the same signing identity. Your library stays in place.").font(.subheadline).foregroundStyle(OxaTheme.secondary)
+            HStack(spacing: 16) {
+                Link("Download", destination: release.page).font(.subheadline.weight(.semibold)).buttonStyle(.borderedProminent).tint(.white).foregroundStyle(.black)
+                Button("Later") { store.skipUpdate() }.font(.subheadline)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(OxaTheme.raised, in: RoundedRectangle(cornerRadius: 18))
     }
 }
