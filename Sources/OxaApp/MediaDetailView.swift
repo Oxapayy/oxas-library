@@ -58,7 +58,7 @@ struct MediaDetailView: View {
                 }
                 if store.state.preferences.externalMetadata && !store.preview { Button { findingArtwork = true } label: { Label("Find Cover & Description", systemImage: "photo").frame(minHeight: 44) } }
             }.padding(20)
-        }.background(.black).navigationTitle(media.kind == .series ? "Series" : "Details").navigationBarTitleDisplayMode(.inline)
+        }.background(OxaTheme.ground).navigationTitle(media.kind == .series ? "Series" : "Details").navigationBarTitleDisplayMode(.inline)
             .task {
                 if media.kind == .series { await store.loadEpisodes(media); selectedSeason = seasons.first(where: { $0 > 0 }) ?? seasons.first ?? 1 }
                 else if media.websiteItem != nil { await store.loadWebsiteDetails(media) }

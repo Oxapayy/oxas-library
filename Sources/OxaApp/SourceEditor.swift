@@ -52,7 +52,7 @@ struct SourceEditor: View {
                 if let message { Section { Text(message).foregroundStyle(.white).font(.subheadline).accessibilityIdentifier("source-error") } }
                 Section { Text("Watch history and favorites stay on this iPhone unless you enable optional account sync.").font(.footnote).foregroundStyle(OxaTheme.secondary) }
 
-            }.scrollDismissesKeyboard(.interactively).scrollContentBackground(.hidden).background(.black).tint(.white).navigationTitle(existing == nil ? "Add Source" : "Edit Source").navigationBarTitleDisplayMode(.inline)
+            }.scrollDismissesKeyboard(.interactively).scrollContentBackground(.hidden).background(OxaTheme.ground).tint(.white).navigationTitle(existing == nil ? "Add Source" : "Edit Source").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) { Button(busy ? "Connecting…" : existing == nil ? "Connect" : "Save") { connect() }.disabled(busy || endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityIdentifier("connect-source") }
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { connectionTask?.cancel(); dismiss() } }

@@ -31,7 +31,7 @@ struct DownloadsView: View {
                     }
                 }
             }.padding(20)
-        }.background(.black).navigationTitle("Downloads").navigationBarTitleDisplayMode(.inline)
+        }.background(OxaTheme.ground).navigationTitle("Downloads").navigationBarTitleDisplayMode(.inline)
             .confirmationDialog("Delete this downloaded video? Your watch progress will be kept.", isPresented: Binding(get: { deletion != nil }, set: { if !$0 { deletion = nil } }), titleVisibility: .visible) {
                 if let transfer = deletion { Button("Delete Download", role: .destructive) { store.downloads.delete(transfer.id); deletion = nil } }
             }

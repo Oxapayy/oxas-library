@@ -68,7 +68,7 @@ struct SettingsView: View {
                         Section { Text("Optional donations help support development. All features stay free.") }
                         Section("Bitcoin · BTC") { Text("3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV").font(.footnote.monospaced()).textSelection(.enabled); ShareLink("Share Address", item: "3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV"); Button("Copy Address") { UIPasteboard.general.string = "3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV" } }
                         Section("Litecoin · LTC") { Text("MTToUVnMpepWixDhUPBBG1SgdmxjifArwF").font(.footnote.monospaced()).textSelection(.enabled); ShareLink("Share Address", item: "MTToUVnMpepWixDhUPBBG1SgdmxjifArwF"); Button("Copy Address") { UIPasteboard.general.string = "MTToUVnMpepWixDhUPBBG1SgdmxjifArwF" } }
-                    }.navigationTitle("Support Oxa").scrollContentBackground(.hidden).background(.black)
+                    }.navigationTitle("Support Oxa").scrollContentBackground(.hidden).background(OxaTheme.ground)
                 }
             }
             Section {
@@ -87,7 +87,7 @@ struct SettingsView: View {
                 if let updateMessage { Text(updateMessage).font(.caption).foregroundStyle(OxaTheme.secondary) }
                 Text("Version \(UpdateCheck.current) · Personal library").font(.caption).foregroundStyle(OxaTheme.secondary)
             }
-        }.scrollContentBackground(.hidden).background(.black).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline).tint(.white)
+        }.scrollContentBackground(.hidden).background(OxaTheme.ground).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline).tint(.white)
             .sheet(item: $editing) { source in SourceEditor(existing: source).environment(store) }
             .confirmationDialog("Remove this source? Saved downloads and watch progress will be kept. You can delete downloads separately.", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
                 if let source = removing { Button("Remove Source", role: .destructive) { store.removeSource(source); removing = nil } }

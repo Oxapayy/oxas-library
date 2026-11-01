@@ -33,7 +33,7 @@ struct MetadataSearch: View {
                         }.buttonStyle(PressStyle())
                     }
                 }.padding(20)
-            }.background(.black).navigationTitle("Choose Artwork").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }.task { await search() }
+            }.background(OxaTheme.ground).navigationTitle("Choose Artwork").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }.task { await search() }
         }.preferredColorScheme(.dark)
     }
     private func search() async {

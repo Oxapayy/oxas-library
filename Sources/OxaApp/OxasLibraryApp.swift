@@ -11,13 +11,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @State private var store = AppStore()
     init() {
         URLCache.shared = URLCache(memoryCapacity: 32 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
-        let appearance = UITabBarAppearance(); appearance.configureWithOpaqueBackground(); appearance.backgroundColor = .black
+        let appearance = UITabBarAppearance(); appearance.configureWithOpaqueBackground(); appearance.backgroundColor = UIColor(white: 0.04, alpha: 1)
         appearance.stackedLayoutAppearance.normal.iconColor = .lightGray
         appearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.lightGray]
         appearance.stackedLayoutAppearance.selected.iconColor = .white
         appearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.white]
         UITabBar.appearance().standardAppearance = appearance; UITabBar.appearance().scrollEdgeAppearance = appearance
-        let navigation = UINavigationBarAppearance(); navigation.configureWithOpaqueBackground(); navigation.backgroundColor = .black
+        let navigation = UINavigationBarAppearance(); navigation.configureWithOpaqueBackground(); navigation.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigation.titleTextAttributes = [.foregroundColor: UIColor.white]; navigation.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
         UINavigationBar.appearance().standardAppearance = navigation; UINavigationBar.appearance().scrollEdgeAppearance = navigation
     }
@@ -36,7 +36,7 @@ struct RootView: View {
         TabView(selection: $store.selectedTab) {
             NavigationStack { LibraryView() }.tabItem { Label("Library", systemImage: "rectangle.stack") }.tag(0)
             NavigationStack { SearchView() }.tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(1)
-            NavigationStack { IPTVView() }.tabItem { Label("IPTV", systemImage: "tv") }.tag(2)
+            NavigationStack { IPTVView() }.tabItem { Label("Live TV", systemImage: "tv") }.tag(2)
             NavigationStack { DownloadsView() }.tabItem { Label("Downloads", systemImage: "arrow.down.circle") }.tag(3)
             NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "slider.horizontal.3") }.tag(4)
         }.tint(.white)
@@ -71,7 +71,7 @@ struct AccountWelcome: View {
                     Button("Continue Without Account") { dismiss() }.accessibilityIdentifier("welcome-guest")
                 }
                 Section { Toggle("Don’t show this message again", isOn: $hideAccountWelcome).tint(OxaTheme.accent) }
-            }.scrollContentBackground(.hidden).background(.black).navigationTitle("Oxa’s Library").navigationBarTitleDisplayMode(.inline)
+            }.scrollContentBackground(.hidden).background(OxaTheme.ground).navigationTitle("Oxa’s Library").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }.preferredColorScheme(.dark).tint(.white).onChange(of: store.account?.unlocked) { _, unlocked in if unlocked == true { dismiss() } }
     }

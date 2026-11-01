@@ -37,7 +37,7 @@ struct IPTVView: View {
                     ForEach(store.sources.filter { ($0.kind.isTV || $0.kind == .website) && store.notices[$0.id] != nil }) { source in Text(store.notices[source.id] ?? "").font(.subheadline).foregroundStyle(OxaTheme.secondary) }
                 }
             }.padding(20)
-        }.background(.black).navigationTitle("IPTV").navigationBarTitleDisplayMode(.inline)
+        }.background(OxaTheme.ground).navigationTitle("Live TV").navigationBarTitleDisplayMode(.inline)
             .modifier(ChannelSearch(query: $query, enabled: !channels.isEmpty))
             .toolbar { if !channels.isEmpty { ToolbarItem(placement: .topBarTrailing) { Button { store.showAddSource = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add IPTV source") } } }
             .sheet(item: $guideChannel) { channel in guide(channel) }
@@ -80,7 +80,7 @@ struct IPTVView: View {
                         }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                     }
                 }.padding(20)
-            }.background(.black).navigationTitle(channel.title).navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { guideChannel = nil } } }
+            }.background(OxaTheme.ground).navigationTitle(channel.title).navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { guideChannel = nil } } }
         }.preferredColorScheme(.dark)
     }
 }

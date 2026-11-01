@@ -7,11 +7,22 @@ struct LibraryView: View {
     @State private var importing = false
     @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 30
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeSize = 32
-    private var visible: [Media] { store.catalog.filter { [.movie, .series].contains($0.kind) && (selectedSource == nil || $0.sourceID == selectedSource) && (type == "All" || type == "Movies" && $0.kind == .movie || type == "Series" && $0.kind == .series) } }
+    private var visible: [Media] {
+        store.catalog.filter { item in
+            guard [.movie, .series].contains(item.kind), selectedSource == nil || item.sourceID == selectedSource else { return false }
+            switch type {
+            case "Movies": return item.kind == .movie
+            case "Series": return item.kind == .series
+            case "Watchlist": return store.state.favorites.contains(item.id)
+            default: return true
+            }
+        }
+    }
     var body: some View {
         let visible = visible
         let newEpisodes = store.newEpisodes.filter { selectedSource == nil || $0.sourceID == selectedSource }
         let continueWatching = store.continueWatching.filter { selectedSource == nil || $0.sourceID == selectedSource }
+        let featured = type == "All" ? continueWatching.first ?? visible.first : visible.first
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if store.sources.isEmpty {
@@ -19,6 +30,16 @@ struct LibraryView: View {
                         OxaMark(size: 25)
                         Text("Oxa’s Library").font(.headline)
                     }.frame(minHeight: 44).padding(.horizontal, 20)
+                } else {
+                    HStack(spacing: 8) {
+                        CategoryBar(selection: $type) { store.selectedTab = 2 }
+                        Button { store.showAddSource = true } label: { Image(systemName: "plus").font(.body.weight(.semibold)).frame(width: 48, height: 48).glassPill(Circle()) }.buttonStyle(PressStyle()).accessibilityLabel("Add source")
+                    }.padding(.horizontal, 16)
+                    if store.sources.count > 1 {
+                        Menu { Button("All sources") { selectedSource = nil }; ForEach(store.sources) { source in Button(source.name) { selectedSource = source.id } } } label: {
+                            Label(selectedSource.flatMap { store.source($0)?.name } ?? "All sources", systemImage: "line.3.horizontal.decrease").font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(1).frame(minHeight: 44)
+                        }.accessibilityLabel("Filter by source").padding(.horizontal, 20).padding(.top, -16)
+                    }
                 }
                 if !store.refreshing.isEmpty { Label("Refreshing sources… You can keep browsing.", systemImage: "arrow.trianglehead.2.clockwise.rotate.90").font(.caption).foregroundStyle(OxaTheme.secondary).padding(.horizontal, 20) }
                 if let update = store.availableUpdate { UpdateBanner(release: update).padding(.horizontal, 20) }
@@ -27,55 +48,54 @@ struct LibraryView: View {
                 }
                 if store.sources.isEmpty { firstRun }
                 else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Library").font(.system(size: titleSize, weight: .bold)).tracking(-0.6)
-                            Spacer()
-                            Button { store.showAddSource = true } label: { Image(systemName: "plus").font(.title3).frame(width: 44, height: 44) }.accessibilityLabel("Add source")
-                        }
-                        Menu { Button("All sources") { selectedSource = nil }; ForEach(store.sources) { source in Button(source.name) { selectedSource = source.id } } } label: {
-                            Label(selectedSource.flatMap { store.source($0)?.name } ?? "All sources", systemImage: "line.3.horizontal.decrease").font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(1).frame(minHeight: 44)
-                        }.accessibilityLabel("Filter by source")
-                    }.padding(.horizontal, 20)
-                    if !newEpisodes.isEmpty {
-                        VStack(spacing: 14) {
-                            SectionHeading(title: "New Episodes")
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 16) { ForEach(newEpisodes) { item in ResumeCard(media: item, isNew: true).frame(width: 340) } }.padding(.horizontal, 20)
-                            }
+                    if let featured {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if featured.id == continueWatching.first?.id { SectionHeading(title: "Continue Watching") }
+                            HeroCard(media: featured).padding(.horizontal, 16)
                         }
                     }
-                    if !continueWatching.isEmpty {
-                        VStack(spacing: 14) {
-                            SectionHeading(title: "Continue Watching")
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 16) { ForEach(continueWatching) { item in ResumeCard(media: item).containerRelativeFrame(.horizontal) { width, _ in continueWatching.count == 1 ? width - 40 : min(340, width - 40) } } }.padding(.horizontal, 20)
-                            }
+                    if type == "All" {
+                        let moreWatching = Array(continueWatching.dropFirst())
+                        if !moreWatching.isEmpty {
+                            ShelfRow(title: "Also watching") { ForEach(moreWatching) { item in ResumeCard(media: item).frame(width: 280) } }
                         }
+                        if !newEpisodes.isEmpty {
+                            ShelfRow(title: "New Episodes") { ForEach(newEpisodes) { item in ResumeCard(media: item, isNew: true).frame(width: 280) } }
+                        }
+                        let watchlist = visible.filter { store.state.favorites.contains($0.id) }
+                        if !watchlist.isEmpty { posterRow("Watchlist", watchlist) }
+                        let movies = visible.filter { $0.kind == .movie }, series = visible.filter { $0.kind == .series }
+                        if !movies.isEmpty { posterRow("Movies", movies) }
+                        if !series.isEmpty { posterRow("Series", series) }
+                    } else if !visible.isEmpty {
+                        SectionHeading(title: type, count: visible.count)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), alignment: .leading, spacing: 20) {
+                            ForEach(visible) { item in posterLink(item) }
+                        }.padding(.horizontal, 16)
                     }
-                    Picker("Media type", selection: $type) { Text("All").tag("All"); Text("Movies").tag("Movies"); Text("Series").tag("Series") }.pickerStyle(.segmented).padding(.horizontal, 20)
                     if visible.isEmpty {
-                        EmptyPanel(title: "No titles here yet", message: "Add a movie or series source, or choose another filter. Your live channels are in IPTV.", icon: "film").padding(.horizontal, 20)
-                    } else {
-                        SectionHeading(title: type == "All" ? "Your Collection" : type, count: visible.count)
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], alignment: .leading, spacing: 24) {
-                            ForEach(visible) { item in NavigationLink { MediaDetailView(media: item) } label: { PosterCard(media: item) }.buttonStyle(PressStyle()).accessibilityIdentifier("media-card-\(item.providerID)") }
-                        }.padding(.horizontal, 20)
+                        EmptyPanel(title: type == "Watchlist" ? "Your watchlist is empty" : "No titles here yet", message: type == "Watchlist" ? "Tap + on a film or series to keep it here." : "Add a movie or series source, or choose another filter. Your live channels are in Live TV.", icon: type == "Watchlist" ? "plus.circle" : "film").padding(.horizontal, 16)
                     }
-                    ForEach((store.state.websitePages ?? []).filter { $0.cursor != nil && $0.catalog.type != "live" && (selectedSource == nil || $0.sourceID == selectedSource) && (type == "All" || type == "Movies" && $0.catalog.type == "video" || type == "Series" && $0.catalog.type == "series") }) { page in
+                    ForEach((store.state.websitePages ?? []).filter { $0.cursor != nil && $0.catalog.type != "live" && (selectedSource == nil || $0.sourceID == selectedSource) && (type == "All" || type == "Watchlist" || type == "Movies" && $0.catalog.type == "video" || type == "Series" && $0.catalog.type == "series") }) { page in
                         Button { Task { await store.loadWebsitePage(page) } } label: {
                             HStack { if store.loadingWebsitePages.contains(page.id) { ProgressView() }; Label("Load More · \(page.catalog.name)", systemImage: "arrow.down"); Spacer(); Text(store.source(page.sourceID)?.name ?? "").foregroundStyle(OxaTheme.secondary).font(.caption) }.padding(16).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-                        }.disabled(store.loadingWebsitePages.contains(page.id)).accessibilityIdentifier("load-more-\(page.addonID)-\(page.catalog.id)").padding(.horizontal, 20)
+                        }.disabled(store.loadingWebsitePages.contains(page.id)).accessibilityIdentifier("load-more-\(page.addonID)-\(page.catalog.id)").padding(.horizontal, 16)
                     }
                     ForEach(store.sources.filter { store.notices[$0.id] != nil }) { source in
                         VStack(alignment: .leading, spacing: 10) {
                             Text(store.notices[source.id] ?? "").font(.subheadline).foregroundStyle(OxaTheme.secondary)
                             Button("Retry \(source.name)") { Task { await store.refresh(source) } }.disabled(store.refreshing.contains(source.id))
-                        }.padding(20).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
+                        }.padding(20).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
                     }
                 }
             }.padding(.top, 8).padding(.bottom, 28)
-        }.background(.black).toolbar(.hidden, for: .navigationBar).refreshable { store.startRefresh(force: true) }
+        }.background(OxaTheme.ground).toolbar(.hidden, for: .navigationBar).refreshable { store.startRefresh(force: true) }
+    }
+    private func posterRow(_ title: String, _ items: [Media]) -> some View {
+        ShelfRow(title: title, count: items.count) { ForEach(items) { item in posterLink(item).frame(width: 120) } }
+    }
+    private func posterLink(_ item: Media) -> some View {
+        NavigationLink { MediaDetailView(media: item) } label: { PosterCard(media: item) }.buttonStyle(PressStyle()).accessibilityIdentifier("media-card-\(item.providerID)")
     }
     private var firstRun: some View {
         VStack(alignment: .leading, spacing: 28) {
@@ -127,10 +147,10 @@ struct PosterCard: View {
     @Environment(AppStore.self) private var store
     var media: Media
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ArtView(media: media).aspectRatio(2 / 3, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 12))
-            Text(media.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(2)
-            Text([media.year.map(String.init), media.kind == .series ? "Series" : "Film", store.source(media.sourceID)?.name].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(OxaTheme.secondary).lineLimit(2)
+        VStack(alignment: .leading, spacing: 8) {
+            ArtView(media: media).aspectRatio(2 / 3, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.08)))
+            Text(media.title).font(.footnote.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+            Text([media.year.map(String.init), media.kind == .series ? "Series" : "Film"].compactMap { $0 }.joined(separator: " · ")).font(.caption2).foregroundStyle(OxaTheme.secondary).lineLimit(1)
         }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
     }
 }
@@ -149,7 +169,7 @@ struct SearchView: View {
             if localBusy && results.isEmpty { ProgressView("Searching your library…").padding(20) }
             else if results.isEmpty { EmptyPanel(title: query.isEmpty ? "Nothing to search yet" : "No matching titles", message: query.isEmpty ? "Connect a source to search your films and series here." : "Try a different title or refresh your media sources.", icon: "magnifyingglass").padding(20) }
             else { LazyVStack(spacing: 18) { ForEach(results) { item in NavigationLink { MediaDetailView(media: item) } label: { MediaRow(media: item) }.buttonStyle(PressStyle()).accessibilityIdentifier("search-result-\(item.providerID)") } }.padding(20) }
-        }.background(.black).navigationTitle("Search").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Films and series")
+        }.background(OxaTheme.ground).navigationTitle("Search").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Films and series")
             .onChange(of: store.libraryEpoch) { results = [] }
             .task(id: LocalSearchKey(query: query, revision: store.state.catalogRevision, epoch: store.libraryEpoch)) {
                 localBusy = true

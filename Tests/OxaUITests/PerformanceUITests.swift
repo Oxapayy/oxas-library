@@ -43,7 +43,7 @@ final class PerformanceUITests: XCTestCase {
         let back = app.navigationBars.buttons["Search"]
         if back.exists { back.tap() } else { app.navigationBars.buttons.firstMatch.tap() }
 
-        open("IPTV", in: app, marker: app.buttons["play-channel-channel-0"], timings: &timings)
+        open("Live TV", in: app, marker: app.buttons["play-channel-channel-0"], timings: &timings)
         app.buttons["Program Guide"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Fixture Channel 0"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Program 1"].waitForExistence(timeout: 5))

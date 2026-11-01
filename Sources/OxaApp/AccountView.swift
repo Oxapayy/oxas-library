@@ -72,7 +72,7 @@ struct AccountView: View {
             }
             if account.busy { Section { ProgressView("Please wait…") } }
             if let message { Section { Text(message).font(.subheadline).accessibilityIdentifier("account-message") } }
-        }.scrollDismissesKeyboard(.interactively).scrollContentBackground(.hidden).background(.black).tint(.white)
+        }.scrollDismissesKeyboard(.interactively).scrollContentBackground(.hidden).background(OxaTheme.ground).tint(.white)
             .navigationTitle("Account").navigationBarTitleDisplayMode(.inline)
             .task { await account.refreshReadiness() }
             .sheet(isPresented: $changingPassword) { ChangePasswordView().environment(store) }
@@ -128,7 +128,7 @@ struct ChangePasswordView: View {
                     }.disabled(busy || current.isEmpty || password.count < 10)
                     if let message { Text(message) }
                 }
-            }.scrollContentBackground(.hidden).background(.black).navigationTitle("Change Password").navigationBarTitleDisplayMode(.inline)
+            }.scrollContentBackground(.hidden).background(OxaTheme.ground).navigationTitle("Change Password").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) } }
                 .interactiveDismissDisabled(busy)
         }.preferredColorScheme(.dark).tint(.white)

@@ -60,7 +60,7 @@ struct SourcePicker: View {
                     } footer: { Text("HTTP media links are unencrypted. Enable them only for a trusted source. Some servers ask your iPhone to fetch a public host page and send its response to this library provider. Your Oxa account and saved server credentials are never included.") }
                 }
                 if let message { Section { Text(message).font(.subheadline); Text("Your watch progress is kept.").foregroundStyle(OxaTheme.secondary) }.accessibilityIdentifier("source-playback-error") }
-            }.scrollContentBackground(.hidden).background(.black).navigationTitle("Sources").navigationBarTitleDisplayMode(.inline)
+            }.scrollContentBackground(.hidden).background(OxaTheme.ground).navigationTitle("Sources").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { task?.cancel(); dismiss() } } }
                 .onDisappear { task?.cancel() }
         }.preferredColorScheme(.dark).tint(.white)

@@ -17,7 +17,7 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["source-error"].label.contains("valid HTTP"))
         let screenshot = XCTAttachment(screenshot: app.screenshot()); screenshot.name = "Source validation"; screenshot.lifetime = .keepAlways; add(screenshot)
         app.buttons["Cancel"].tap()
-        app.tabBars.buttons["IPTV"].tap()
+        app.tabBars.buttons["Live TV"].tap()
         XCTAssertTrue(app.staticTexts["No live channels yet"].waitForExistence(timeout: 5))
         let tv = XCTAttachment(screenshot: app.screenshot()); tv.name = "IPTV empty state"; tv.lifetime = .keepAlways; add(tv)
         app.tabBars.buttons["Downloads"].tap()
@@ -87,7 +87,7 @@ final class SmokeTests: XCTestCase {
         let screenshot = XCTAttachment(screenshot: app.screenshot()); screenshot.name = "Imported Website Library"; screenshot.lifetime = .keepAlways; add(screenshot)
         app.buttons["media-card-fixture-metadata:series:show-1"].tap()
         XCTAssertTrue(app.staticTexts["First Episode"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["IPTV"].tap()
+        app.tabBars.buttons["Live TV"].tap()
         XCTAssertTrue(app.buttons["play-channel-fixture-live:live:tv-1"].waitForExistence(timeout: 5))
         app.tabBars.buttons["Search"].tap()
         let search = app.searchFields.firstMatch
