@@ -18,32 +18,60 @@ struct MediaDetailView: View {
         return resume ?? episodes.first { store.state.progress[$0.id]?.completed != true } ?? episodes.first
     }
     var body: some View {
+        let watchItem = media.kind == .episode ? store.catalog.first { $0.kind == .series && $0.sourceID == media.sourceID && $0.providerID == media.seriesID } ?? current : current
+        let listed = store.state.favorites.contains(watchItem.id)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
-                ArtView(media: current, wide: true).frame(height: 235).clipShape(RoundedRectangle(cornerRadius: 16))
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(current.displayTitle).font(.system(size: titleSize, weight: .bold)).tracking(-0.5)
-                    Text([current.year.map(String.init), media.kind == .episode ? media.episodeLabel : media.episodeLabel, current.duration.boundedDuration > 0 ? "\(Int(current.duration.boundedDuration / 60)) min" : nil].compactMap { $0 }.joined(separator: " · ")).font(.subheadline).foregroundStyle(OxaTheme.secondary)
-                    if let source = store.source(media.sourceID) { Text(source.name).font(.caption).foregroundStyle(OxaTheme.secondary) }
+                ZStack(alignment: .bottomLeading) {
+                    ArtView(media: current, wide: false).frame(height: 520).frame(maxWidth: .infinity)
+                    LinearGradient(colors: [OxaTheme.ground.opacity(0), OxaTheme.ground.opacity(0.7), OxaTheme.ground], startPoint: .center, endPoint: .bottom)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(current.displayTitle).font(.system(size: titleSize, weight: .bold)).tracking(-0.5).foregroundStyle(.white).lineLimit(3)
+                        Text([current.year.map(String.init), media.kind == .series ? "Series" : media.kind == .episode ? "\(media.episodeLabel) · \(current.title)" : "Film", current.duration.boundedDuration > 0 ? "\(Int(current.duration.boundedDuration / 60)) min" : nil, store.source(media.sourceID)?.name].compactMap { $0 }.joined(separator: " · ")).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.78)).lineLimit(2)
+                    }.padding(.horizontal, 20).padding(.bottom, 4)
                 }
-                if let target {
-                    let saved = store.state.progress[target.id]
-                    PrimaryAction(title: saved != nil && saved?.completed == false ? "Resume at \(saved!.seconds.clock)" : "Play", icon: "play.fill") { Task { await store.play(target) } }
-                    if target.kind == .episode && media.kind == .series { Text("\(target.episodeLabel) · \(target.title)").font(.subheadline).foregroundStyle(OxaTheme.secondary) }
-                    if media.kind != .series { downloadButton(target) }
-                } else if media.kind == .series { Text("Loading episodes…").foregroundStyle(OxaTheme.secondary) }
-                if media.websiteItem != nil { Text("Catalog information is provided by this website and its linked providers. Stream availability is checked when you press Play.").font(.caption).foregroundStyle(OxaTheme.secondary) }
-                if !current.overview.isEmpty { Text(current.overview).font(.body).lineSpacing(4).foregroundStyle(OxaTheme.secondary) }
+                VStack(alignment: .leading, spacing: 16) {
+                    if let target {
+                        let saved = store.state.progress[target.id]
+                        let resuming = saved.map { !$0.completed && $0.seconds > 0 } ?? false
+                        HStack(spacing: 10) {
+                            Button { Task { await store.play(target) } } label: {
+                                Label(resuming ? "Resume at \(saved!.seconds.clock)" : "Play", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 52).background(OxaTheme.onWhite, in: Capsule()).foregroundStyle(.black)
+                            }.buttonStyle(PressStyle())
+                            HStack(spacing: 0) {
+                                Button { store.toggleFavorite(watchItem) } label: { Image(systemName: listed ? "checkmark" : "plus").frame(width: 52, height: 52) }
+                                    .accessibilityLabel(listed ? "Remove \(watchItem.title) from watchlist" : "Add \(watchItem.title) to watchlist")
+                                if media.kind != .series {
+                                    Rectangle().fill(.white.opacity(0.2)).frame(width: 1, height: 22)
+                                    downloadIcon(target)
+                                }
+                            }.font(.body.weight(.semibold)).foregroundStyle(.white).glassPill(Capsule())
+                        }
+                        if resuming, let saved {
+                            VStack(alignment: .leading, spacing: 6) {
+                                if target.kind == .episode && media.kind == .series { Text("\(target.episodeLabel) · \(target.title)").font(.subheadline.weight(.medium)) }
+                                ProgressView(value: saved.fraction).tint(OxaTheme.accent).accessibilityLabel("Watch progress")
+                                Text("\(max(0, saved.duration - saved.seconds).clock) left").font(.caption).monospacedDigit().foregroundStyle(OxaTheme.secondary)
+                            }
+                        } else if target.kind == .episode && media.kind == .series { Text("Starts with \(target.episodeLabel) · \(target.title)").font(.subheadline).foregroundStyle(OxaTheme.secondary) }
+                    } else if media.kind == .series { Label("Loading episodes…", systemImage: "hourglass").foregroundStyle(OxaTheme.secondary) }
+                    if !current.overview.isEmpty { Text(current.overview).font(.body).lineSpacing(4).foregroundStyle(.white.opacity(0.82)) }
+                    if media.websiteItem != nil { Text("Catalog information is provided by this website and its linked providers. Stream availability is checked when you press Play.").font(.caption).foregroundStyle(OxaTheme.secondary) }
+                }.padding(.horizontal, 20)
                 if media.kind == .series {
-                    HStack {
-                        Text("Episodes").font(.title3.weight(.semibold))
-                        Spacer()
-                        if !seasons.isEmpty { Picker("Season", selection: $selectedSeason) { ForEach(seasons, id: \.self) { Text("Season \($0)").tag($0) } }.tint(.white) }
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            Text("Episodes").font(.title3.weight(.semibold))
+                            Spacer()
+                            if !episodes.isEmpty {
+                                Button { store.downloadSeason(episodes.filter { ($0.season ?? 1) == selectedSeason }) } label: { Label("Download season", systemImage: "arrow.down.circle").font(.subheadline).frame(minHeight: 44) }.disabled(store.preview)
+                            }
+                        }.padding(.horizontal, 20)
+                        if seasons.count > 1 { SeasonBar(seasons: seasons, selection: $selectedSeason).padding(.horizontal, 16) }
+                        if !episodes.isEmpty {
+                            VStack(spacing: 20) { ForEach(episodes.filter { ($0.season ?? 1) == selectedSeason }) { episode in episodeRow(episode) } }.padding(.horizontal, 20)
+                        } else { Text("No episodes were returned by this source.").font(.subheadline).foregroundStyle(OxaTheme.secondary).padding(.horizontal, 20) }
                     }
-                    if !episodes.isEmpty {
-                        Button { store.downloadSeason(episodes.filter { ($0.season ?? 1) == selectedSeason }) } label: { Label("Download Season \(selectedSeason)", systemImage: "arrow.down.circle").frame(minHeight: 44) }.disabled(store.preview)
-                        ForEach(episodes.filter { ($0.season ?? 1) == selectedSeason }) { episode in episodeRow(episode) }
-                    } else { Text("No episodes were returned by this source.").font(.subheadline).foregroundStyle(OxaTheme.secondary) }
                 }
                 if current.kind == .movie || current.kind == .episode {
                     VStack(alignment: .leading, spacing: 10) {
@@ -54,11 +82,11 @@ struct MediaDetailView: View {
                             Text("An external subtitle file is attached.").font(.caption).foregroundStyle(OxaTheme.secondary)
                             Button("Remove External Subtitles", role: .destructive) { removeCaption(current) }
                         }
-                    }
+                    }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: 20)).padding(.horizontal, 16)
                 }
-                if store.state.preferences.externalMetadata && !store.preview { Button { findingArtwork = true } label: { Label("Find Cover & Description", systemImage: "photo").frame(minHeight: 44) } }
-            }.padding(20)
-        }.background(OxaTheme.ground).navigationTitle(media.kind == .series ? "Series" : "Details").navigationBarTitleDisplayMode(.inline)
+                if store.state.preferences.externalMetadata && !store.preview { Button { findingArtwork = true } label: { Label("Find Cover & Description", systemImage: "photo").frame(minHeight: 44) }.padding(.horizontal, 20) }
+            }.padding(.bottom, 28)
+        }.background(OxaTheme.ground).ignoresSafeArea(edges: .top).navigationTitle("").navigationBarTitleDisplayMode(.inline).toolbarBackground(.hidden, for: .navigationBar)
             .task {
                 if media.kind == .series { await store.loadEpisodes(media); selectedSeason = seasons.first(where: { $0 > 0 }) ?? seasons.first ?? 1 }
                 else if media.websiteItem != nil { await store.loadWebsiteDetails(media) }
@@ -87,25 +115,57 @@ struct MediaDetailView: View {
             store.save()
         } catch { store.error = "Could not remove this subtitle file." }
     }
-    private func downloadButton(_ item: Media) -> some View {
+    private func downloadIcon(_ item: Media, identifier: String = "Download") -> some View {
         let state = store.state.transfers.first { $0.id == item.id }?.state
         return Button {
             if state == .ready { store.selectedTab = 3 } else { store.download(item) }
-        } label: { Label(state == .ready ? "Saved for Offline" : state == .downloading || state == .queued ? "Downloading…" : "Download", systemImage: state == .ready ? "checkmark.circle" : "arrow.down.circle").font(.body.weight(.medium)).frame(maxWidth: .infinity, minHeight: 44) }.buttonStyle(PressStyle()).disabled(store.preview || state == .downloading || state == .queued)
+        } label: {
+            Group { if state == .downloading || state == .queued { ProgressView().tint(.white) } else { Image(systemName: state == .ready ? "checkmark.circle" : "arrow.down.to.line") } }.frame(width: 52, height: 52)
+        }.disabled(store.preview || state == .downloading || state == .queued)
+            .accessibilityLabel(state == .ready ? "Saved for offline, open Downloads" : state == .downloading || state == .queued ? "Downloading \(item.title)" : "Download \(item.title)")
+            .accessibilityIdentifier(identifier)
     }
     private func episodeRow(_ item: Media) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
+        let saved = store.state.progress[item.id]
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 14) {
+                Button { Task { await store.play(item) } } label: {
+                    ZStack(alignment: .bottomLeading) {
+                        ArtView(media: item, wide: true).frame(width: 140, height: 80)
+                        Image(systemName: "play.fill").font(.caption).foregroundStyle(.black).frame(width: 28, height: 28).background(OxaTheme.onWhite, in: Circle()).padding(8)
+                        if let saved, !saved.completed { ProgressView(value: saved.fraction).tint(OxaTheme.accent).frame(height: 3).padding(.horizontal, 8).padding(.bottom, 2).frame(maxHeight: .infinity, alignment: .bottom) }
+                    }.frame(width: 140, height: 80).clipShape(RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.08)))
+                }.buttonStyle(PressStyle()).accessibilityLabel("Play \(item.title)")
+                VStack(alignment: .leading, spacing: 4) {
                     Text(item.episodeLabel).font(.caption).foregroundStyle(OxaTheme.secondary)
-                    Text(item.title).font(.body.weight(.semibold))
-                    if let saved = store.state.progress[item.id] { Text(saved.completed ? "Watched" : "Resume at \(saved.seconds.clock)").font(.caption).foregroundStyle(OxaTheme.secondary) }
+                    Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                    if let saved { Text(saved.completed ? "Watched" : "Resume at \(saved.seconds.clock)").font(.caption).foregroundStyle(OxaTheme.secondary) }
                 }
-                Spacer()
-                Button { Task { await store.play(item) } } label: { Image(systemName: "play.fill").frame(width: 44, height: 44).background(OxaTheme.raised, in: Circle()) }.accessibilityLabel("Play \(item.title)")
+                Spacer(minLength: 0)
             }
-            if !item.overview.isEmpty { Text(item.overview).font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(3) }
-            HStack { downloadButton(item); Button { captionTarget = item; importingCaption = true } label: { Image(systemName: "captions.bubble").frame(width: 44, height: 44) }.accessibilityLabel("Import subtitles for \(item.title)").disabled(store.preview) }
-        }.padding(16).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+            if !item.overview.isEmpty { Text(item.overview).font(.footnote).foregroundStyle(OxaTheme.secondary).lineLimit(3) }
+            HStack(spacing: 4) {
+                downloadIcon(item, identifier: "download-\(item.providerID)").frame(width: 44, height: 44)
+                Button { captionTarget = item; importingCaption = true } label: { Image(systemName: "captions.bubble").frame(width: 44, height: 44) }.accessibilityLabel("Import subtitles for \(item.title)").disabled(store.preview)
+            }.font(.subheadline).foregroundStyle(OxaTheme.secondary)
+        }
+    }
+}
+
+private struct SeasonBar: View {
+    let seasons: [Int]
+    @Binding var selection: Int
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(seasons, id: \.self) { number in
+                    let active = number == selection
+                    Button { selection = number } label: {
+                        Text("Season \(number)").font(.subheadline.weight(active ? .bold : .medium)).foregroundStyle(active ? .black : .white.opacity(0.72))
+                            .padding(.horizontal, 14).frame(minHeight: 40).background(active ? OxaTheme.onWhite : .clear, in: Capsule()).contentShape(Capsule())
+                    }.accessibilityAddTraits(active ? .isSelected : [])
+                }
+            }.padding(4)
+        }.glassPill(Capsule()).clipShape(Capsule()).fixedSize(horizontal: false, vertical: true)
     }
 }
