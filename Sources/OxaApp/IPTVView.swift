@@ -20,7 +20,7 @@ struct IPTVView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if channels.isEmpty {
-                    EmptyPanel(title: "Your live TV, together", message: "Connect an M3U playlist or Xtream Codes provider to watch your channels and explore the program guide.", icon: "tv")
+                    EmptyPanel(title: "No live channels yet", message: "Add an M3U playlist or Xtream Codes login to see your channels and their program guide here.", icon: "tv")
                     PrimaryAction(title: "Add IPTV Source", icon: "plus") { store.showAddSource = true }
                 } else {
                     HStack {
@@ -37,8 +37,9 @@ struct IPTVView: View {
                     ForEach(store.sources.filter { ($0.kind.isTV || $0.kind == .website) && store.notices[$0.id] != nil }) { source in Text(store.notices[source.id] ?? "").font(.subheadline).foregroundStyle(OxaTheme.secondary) }
                 }
             }.padding(20)
-        }.background(.black).navigationTitle("IPTV").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Channels and programs")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { store.showAddSource = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add IPTV source") } }
+        }.background(.black).navigationTitle("IPTV").navigationBarTitleDisplayMode(.inline)
+            .modifier(ChannelSearch(query: $query, enabled: !channels.isEmpty))
+            .toolbar { if !channels.isEmpty { ToolbarItem(placement: .topBarTrailing) { Button { store.showAddSource = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add IPTV source") } } }
             .sheet(item: $guideChannel) { channel in guide(channel) }
             .refreshable { for source in store.sources.filter({ $0.kind.isTV || $0.kind == .website }) { await store.refresh(source) } }
     }
@@ -50,7 +51,7 @@ struct IPTVView: View {
                     HStack(spacing: 14) {
                         if let poster = channel.poster { SafeArtwork(url: poster, sourceID: channel.sourceID, mode: .fit, pixelSize: 132).frame(width: 44, height: 44) }
                         else { Image(systemName: "tv").font(.title2).frame(width: 44, height: 44).foregroundStyle(OxaTheme.secondary) }
-                        VStack(alignment: .leading, spacing: 5) { Text(channel.title).font(.body.weight(.semibold)); Text(now?.title ?? "Live TV").font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(2) }
+                        VStack(alignment: .leading, spacing: 5) { Text(channel.title).font(.body.weight(.semibold)); if let detail = now?.title ?? channel.group { Text(detail).font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(2) } }
                         Spacer(minLength: 0)
                         Image(systemName: "play.fill").font(.subheadline)
                     }
@@ -62,7 +63,7 @@ struct IPTVView: View {
                 ProgressView(value: fraction).tint(OxaTheme.accent)
                 HStack { Text(now.start, style: .time); Spacer(); Text(now.end, style: .time) }.font(.caption).foregroundStyle(OxaTheme.secondary)
             }
-            Button { guideChannel = channel } label: { Label("Program Guide", systemImage: "list.bullet").font(.subheadline).frame(minHeight: 32) }
+            Button { guideChannel = channel } label: { Label("Program Guide", systemImage: "list.bullet").font(.subheadline).frame(minHeight: 44) }
         }.padding(16).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: 16))
     }
     private func guide(_ channel: Media) -> some View {
@@ -81,5 +82,13 @@ struct IPTVView: View {
                 }.padding(20)
             }.background(.black).navigationTitle(channel.title).navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { guideChannel = nil } } }
         }.preferredColorScheme(.dark)
+    }
+}
+
+private struct ChannelSearch: ViewModifier {
+    @Binding var query: String
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled { content.searchable(text: $query, prompt: "Channels and programs") } else { content }
     }
 }

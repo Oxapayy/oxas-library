@@ -18,10 +18,10 @@ final class SmokeTests: XCTestCase {
         let screenshot = XCTAttachment(screenshot: app.screenshot()); screenshot.name = "Source validation"; screenshot.lifetime = .keepAlways; add(screenshot)
         app.buttons["Cancel"].tap()
         app.tabBars.buttons["IPTV"].tap()
-        XCTAssertTrue(app.staticTexts["Your live TV, together"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No live channels yet"].waitForExistence(timeout: 5))
         let tv = XCTAttachment(screenshot: app.screenshot()); tv.name = "IPTV empty state"; tv.lifetime = .keepAlways; add(tv)
         app.tabBars.buttons["Downloads"].tap()
-        XCTAssertTrue(app.staticTexts["Take your library with you"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No downloads yet"].waitForExistence(timeout: 5))
     }
     func testPreviewLibrary() {
         let app = XCUIApplication(); app.launchArguments = ["--ui-test-reset", "--preview-library"]; app.launch()
@@ -66,7 +66,7 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["Play Offline"].waitForExistence(timeout: 5))
         app.buttons["Delete download of test-video"].tap()
         app.buttons["Delete Download"].tap()
-        XCTAssertTrue(app.staticTexts["Take your library with you"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No downloads yet"].waitForExistence(timeout: 5))
         app.tabBars.buttons["Library"].tap()
         if app.navigationBars.buttons["Back"].exists { app.navigationBars.buttons["Back"].tap() }
         XCTAssertTrue(app.staticTexts["Continue Watching"].waitForExistence(timeout: 5))

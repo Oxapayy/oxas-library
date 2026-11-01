@@ -40,15 +40,16 @@ struct AccountView: View {
                     Text("An account is optional. Sync your connections, watchlist and where you stopped watching. You can always use this app without one.").font(.subheadline).foregroundStyle(OxaTheme.secondary)
                 }
                 Section {
-                    TextField("Email", text: $email).keyboardType(.emailAddress).textContentType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("account-email")
+                    LabeledContent("Email") { TextField("Email", text: $email, prompt: Text(verbatim: "name@example.com")).multilineTextAlignment(.trailing).keyboardType(.emailAddress).textContentType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("account-email") }
                     if ["signin", "signup", "verify", "reset"].contains(mode) {
-                        SecureField(mode == "reset" ? "New password" : "Password", text: $password).textContentType(mode == "signup" || mode == "reset" ? .newPassword : .password).accessibilityIdentifier("account-password")
+                        let label = mode == "reset" ? "New password" : "Password"
+                        LabeledContent(label) { SecureField(label, text: $password, prompt: Text(mode == "signup" || mode == "reset" ? "10+ characters" : "Required")).multilineTextAlignment(.trailing).textContentType(mode == "signup" || mode == "reset" ? .newPassword : .password).accessibilityIdentifier("account-password") }
                     }
                     if mode == "verify" || mode == "reset" {
-                        TextField("Verification code", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode).onChange(of: code) { _, value in code = String(value.filter(\.isNumber).prefix(8)) }.accessibilityIdentifier("account-code")
+                        LabeledContent("Code") { TextField("Verification code", text: $code, prompt: Text("From your email")).multilineTextAlignment(.trailing).keyboardType(.numberPad).textContentType(.oneTimeCode).onChange(of: code) { _, value in code = String(value.filter(\.isNumber).prefix(8)) }.accessibilityIdentifier("account-code") }
                     }
                     if mode == "signin" || mode == "signup" || mode == "verify" { Toggle("Include this iPhone’s library", isOn: $includeLocal).tint(OxaTheme.accent) }
-                    Button(actionTitle) { submit() }.fontWeight(.semibold).frame(minHeight: 32).disabled(account.busy || !validEmail || (["verify", "reset"].contains(mode) && code.count < 6)).accessibilityIdentifier("account-submit")
+                    Button(actionTitle) { submit() }.fontWeight(.semibold).frame(minHeight: 44).disabled(account.busy || !validEmail || (["verify", "reset"].contains(mode) && code.count < 6)).accessibilityIdentifier("account-submit")
                     if mode == "verify" || mode == "reset" {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             Button("Send code again") { resend() }.disabled(account.busy || context.date < resendAfter)

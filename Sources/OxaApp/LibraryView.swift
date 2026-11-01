@@ -14,25 +14,28 @@ struct LibraryView: View {
         let continueWatching = store.continueWatching.filter { selectedSource == nil || $0.sourceID == selectedSource }
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                HStack(spacing: 10) {
-                    OxaMark(size: 25)
-                    Text("Oxa’s Library").font(.headline)
-                    Spacer()
-                    Button { store.showAddSource = true } label: { Image(systemName: "plus").frame(width: 44, height: 44) }.accessibilityLabel("Add source")
-                }.padding(.horizontal, 20)
+                if store.sources.isEmpty {
+                    HStack(spacing: 10) {
+                        OxaMark(size: 25)
+                        Text("Oxa’s Library").font(.headline)
+                    }.frame(minHeight: 44).padding(.horizontal, 20)
+                }
                 if !store.refreshing.isEmpty { Label("Refreshing sources… You can keep browsing.", systemImage: "arrow.trianglehead.2.clockwise.rotate.90").font(.caption).foregroundStyle(OxaTheme.secondary).padding(.horizontal, 20) }
                 if let update = store.availableUpdate { UpdateBanner(release: update).padding(.horizontal, 20) }
                 if store.preview {
-                    HStack { Text("Preview library · illustrative titles").font(.caption).foregroundStyle(OxaTheme.secondary); Spacer(); Button("Exit") { store.leavePreview() }.font(.caption.weight(.semibold)) }.padding(.horizontal, 20)
+                    HStack { Text("Preview library · illustrative titles").font(.caption).foregroundStyle(OxaTheme.secondary); Spacer(); Button("Exit Preview") { store.leavePreview() }.font(.caption.weight(.semibold)).frame(minHeight: 44) }.padding(.horizontal, 20)
                 }
                 if store.sources.isEmpty { firstRun }
                 else {
-                    HStack {
-                        Text("Library").font(.system(size: titleSize, weight: .bold)).tracking(-0.6)
-                        Spacer()
-                        Menu { Button("All sources") { selectedSource = nil }; ForEach(store.sources) { source in Button(source.name) { selectedSource = source.id } } } label: {
-                            Label(selectedSource.flatMap { store.source($0)?.name } ?? "All sources", systemImage: "line.3.horizontal.decrease").font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(1)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Library").font(.system(size: titleSize, weight: .bold)).tracking(-0.6)
+                            Spacer()
+                            Button { store.showAddSource = true } label: { Image(systemName: "plus").font(.title3).frame(width: 44, height: 44) }.accessibilityLabel("Add source")
                         }
+                        Menu { Button("All sources") { selectedSource = nil }; ForEach(store.sources) { source in Button(source.name) { selectedSource = source.id } } } label: {
+                            Label(selectedSource.flatMap { store.source($0)?.name } ?? "All sources", systemImage: "line.3.horizontal.decrease").font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(1).frame(minHeight: 44)
+                        }.accessibilityLabel("Filter by source")
                     }.padding(.horizontal, 20)
                     if !newEpisodes.isEmpty {
                         VStack(spacing: 14) {
@@ -55,7 +58,6 @@ struct LibraryView: View {
                         EmptyPanel(title: "No titles here yet", message: "Add a movie or series source, or choose another filter. Your live channels are in IPTV.", icon: "film").padding(.horizontal, 20)
                     } else {
                         SectionHeading(title: type == "All" ? "Your Collection" : type, count: visible.count)
-                        // Two equal columns: (available width − 40pt margins − 16pt gap) / 2.
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], alignment: .leading, spacing: 24) {
                             ForEach(visible) { item in NavigationLink { MediaDetailView(media: item) } label: { PosterCard(media: item) }.buttonStyle(PressStyle()).accessibilityIdentifier("media-card-\(item.providerID)") }
                         }.padding(.horizontal, 20)
@@ -113,7 +115,7 @@ struct ResumeCard: View {
             VStack(alignment: .leading, spacing: 9) {
                 HStack { Text(media.displayTitle).font(.headline).lineLimit(1); Spacer(); if store.localURL(media) != nil { Image(systemName: "arrow.down.circle.fill").foregroundStyle(OxaTheme.secondary) } }
                 Text(media.kind == .episode ? "\(media.episodeLabel) · \(media.title)" : media.episodeLabel).font(.subheadline).foregroundStyle(OxaTheme.secondary).lineLimit(1)
-                if isNew { Text("Play Episode").font(.subheadline.weight(.semibold)) } else {
+                if isNew { Text("New episode").font(.caption).foregroundStyle(OxaTheme.secondary) } else {
                 ProgressView(value: progress?.fraction ?? 0).tint(OxaTheme.accent).accessibilityLabel("Watch progress")
                 HStack { Text(progress?.seconds.clock ?? "0:00"); Spacer(); Text("\(max(0, (progress?.duration ?? 0) - (progress?.seconds ?? 0)).clock) remaining") }.font(.caption).monospacedDigit().foregroundStyle(OxaTheme.secondary)
                 }
@@ -145,7 +147,7 @@ struct SearchView: View {
             if remoteBusy { ProgressView("Searching connected libraries…").padding(20) }
             if let remoteMessage { VStack(spacing: 8) { Text(remoteMessage).font(.subheadline).foregroundStyle(OxaTheme.secondary); Button("Retry") { searchRetry += 1 } }.padding(20) }
             if localBusy && results.isEmpty { ProgressView("Searching your library…").padding(20) }
-            else if results.isEmpty { EmptyPanel(title: query.isEmpty ? "Find your next watch" : "No matching titles", message: query.isEmpty ? "Connect a source to search your films and series here." : "Try a different title or refresh your media sources.", icon: "magnifyingglass").padding(20) }
+            else if results.isEmpty { EmptyPanel(title: query.isEmpty ? "Nothing to search yet" : "No matching titles", message: query.isEmpty ? "Connect a source to search your films and series here." : "Try a different title or refresh your media sources.", icon: "magnifyingglass").padding(20) }
             else { LazyVStack(spacing: 18) { ForEach(results) { item in NavigationLink { MediaDetailView(media: item) } label: { MediaRow(media: item) }.buttonStyle(PressStyle()).accessibilityIdentifier("search-result-\(item.providerID)") } }.padding(20) }
         }.background(.black).navigationTitle("Search").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Films and series")
             .onChange(of: store.libraryEpoch) { results = [] }

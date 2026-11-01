@@ -199,9 +199,8 @@ import AVFoundation
         } catch { guard context == libraryEpoch else { return }; notices[source.id] = "Could not refresh \(source.name). Cached titles are still available. \(safeMessage(error))" }
     }
     private var refreshTask: Task<Void, Never>?
-    /// Automatic refreshes skip sources refreshed recently that already have
-    /// titles here, because re-downloading large playlists costs battery and
-    /// data. Pull to refresh passes force; Low Power Mode waits longer.
+    /// Skips recently refreshed sources that already have titles, to save battery and data.
+    /// Pull to refresh passes force; Low Power Mode waits longer.
     func startRefresh(force: Bool = false) {
         #if DEBUG
         // This playback-only fixture intentionally has no matching server catalog.
@@ -512,7 +511,7 @@ import AVFoundation
     func enablePreview() {
         preview = true
         let id = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        state = LibraryState(); state.sources = [MediaSource(id: id, name: "Preview library", kind: .jellyfin, host: "Preview — no connection")]
+        state = LibraryState(); state.sources = [MediaSource(id: id, name: "Preview library", kind: .jellyfin, host: "Preview, no connection")]
         let series = Media(id: "preview-series", sourceID: id, providerID: "series", title: "The Quiet Coast", kind: .series, overview: "A journey along the edges of the Atlantic, where the sea sets the pace.", year: 2026)
         var episode = Media(id: "preview-episode", sourceID: id, providerID: "episode", title: "Where the land ends", kind: .episode, overview: "The fishing villages and open horizons of the western coast.", duration: 2820)
         episode.seriesID = "series"; episode.seriesTitle = series.title; episode.season = 1; episode.episode = 3

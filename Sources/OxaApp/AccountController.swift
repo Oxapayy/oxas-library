@@ -10,9 +10,8 @@ struct AccountSyncSession: Sendable {
 
 enum AccountSyncRPC {
     static func send(_ request: CloudRequest, session: AccountSyncSession, fetch: @escaping PostgrestClient.FetchHandler) async throws -> CloudReply {
-        // Use the same PostgREST encoder/decoder/error handling as Supabase.rpc,
-        // with a frozen bearer. SupabaseClient's adapter would replace this
-        // header by reading a possibly different current SDK session again.
+        // Same PostgREST handling as Supabase.rpc, but with a frozen bearer:
+        // the SDK adapter could swap in a different current session.
         let rest = PostgrestClient(url: CloudConfiguration.url.appendingPathComponent("rest/v1"), headers: ["apikey": CloudConfiguration.key, "Authorization": "Bearer \(session.accessToken)"], fetch: fetch)
         return try await rest.rpc("sync_library", params: request).execute().value
     }

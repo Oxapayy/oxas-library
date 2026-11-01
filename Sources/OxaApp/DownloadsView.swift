@@ -7,7 +7,7 @@ struct DownloadsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if store.state.transfers.isEmpty {
-                    EmptyPanel(title: "Take your library with you", message: "Download a film, an episode or a whole season from its details. Saved videos stay here until you delete them.", icon: "arrow.down.circle")
+                    EmptyPanel(title: "No downloads yet", message: "Download a film, an episode or a whole season from its details. Saved videos stay here until you delete them.", icon: "arrow.down.circle")
                     Text("Downloads use Wi-Fi or mobile data. Your watch progress stays on this iPhone, even after deleting a video.").font(.subheadline).foregroundStyle(OxaTheme.secondary)
                 } else {
                     HStack { Text("\(store.state.transfers.filter { $0.state == .ready }.count) saved offline"); Spacer(); Text(ByteCountFormatter.string(fromByteCount: store.state.transfers.reduce(0) { $0 + ($1.state == .ready ? $1.bytes : 0) }, countStyle: .file)) }.font(.subheadline).foregroundStyle(OxaTheme.secondary)

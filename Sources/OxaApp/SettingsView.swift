@@ -13,7 +13,7 @@ struct SettingsView: View {
         @Bindable var store = store
         Form {
             Section {
-                HStack(spacing: 14) { OxaMark(size: 36); VStack(alignment: .leading, spacing: 4) { Text("Oxa’s Library").font(.headline); Text("Your collection. On your terms.").font(.subheadline).foregroundStyle(OxaTheme.secondary) } }.padding(.vertical, 10)
+                HStack(spacing: 14) { OxaMark(size: 36); VStack(alignment: .leading, spacing: 4) { Text("Oxa’s Library").font(.headline); Text("Films, series and live TV from your own sources").font(.subheadline).foregroundStyle(OxaTheme.secondary) } }.padding(.vertical, 10)
             }
             Section {
                 NavigationLink { AccountView().environment(store) } label: {
@@ -31,7 +31,7 @@ struct SettingsView: View {
                         HStack {
                             Button { Task { await store.refresh(source) } } label: { if store.refreshing.contains(source.id) { ProgressView() } else { Text("Refresh") } }.disabled(store.preview || store.refreshing.contains(source.id))
                             Spacer(); Button("Remove", role: .destructive) { removing = source }.disabled(store.preview)
-                        }.font(.subheadline).frame(minHeight: 32)
+                        }.font(.subheadline).frame(minHeight: 44)
                     }.padding(.vertical, 6).buttonStyle(.borderless)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) { Button("Remove", role: .destructive) { removing = source } }
                 }

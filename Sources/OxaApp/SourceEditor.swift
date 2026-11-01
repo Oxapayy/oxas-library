@@ -28,20 +28,20 @@ struct SourceEditor: View {
                 }
                 Section {
                     Picker("Source type", selection: $kind) { ForEach(SourceKind.allCases) { kind in Text(kind.rawValue).tag(kind) } }.disabled(existing != nil).accessibilityIdentifier("source-kind")
-                    TextField("Source name", text: $name).textContentType(.none).accessibilityIdentifier("source-name")
-                    TextField(kind == .m3u ? "Playlist URL" : kind == .direct ? "Video URL" : kind == .website ? "Library URL" : "Server URL", text: $endpoint).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("source-url")
+                    LabeledContent("Name") { TextField("Name", text: $name, prompt: Text("Optional")).multilineTextAlignment(.trailing).textContentType(.none).accessibilityIdentifier("source-name") }
+                    LabeledContent(urlLabel) { TextField(urlLabel, text: $endpoint, prompt: Text("https://")).multilineTextAlignment(.trailing).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("source-url") }
                 } header: { Text("Connection") } footer: { Text(help) }
                 if [.jellyfin, .emby, .xtream, .webdav].contains(kind) {
                     Section {
-                        TextField("Username", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled().textContentType(.username)
-                        SecureField(existing != nil && !token.isEmpty && (kind == .jellyfin || kind == .emby) ? "Password (leave blank to keep session)" : "Password", text: $password).textContentType(.password)
+                        LabeledContent("Username") { TextField("Username", text: $username, prompt: Text(kind == .webdav ? "Optional" : "Required")).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled().textContentType(.username) }
+                        LabeledContent("Password") { SecureField("Password", text: $password, prompt: Text(existing != nil && !token.isEmpty && (kind == .jellyfin || kind == .emby) ? "Blank keeps session" : kind == .webdav ? "Optional" : "Required")).multilineTextAlignment(.trailing).textContentType(.password) }
                     } header: { Text(kind == .webdav ? "Login (optional)" : "Login") }
                 }
                 if kind == .plex {
-                    Section { SecureField("Plex token", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled() } header: { Text("Authentication") } footer: { Text("Use a token authorized to access this Plex server. It is stored in the iPhone Keychain.") }
+                    Section { LabeledContent("Plex token") { SecureField("Plex token", text: $token, prompt: Text("Required")).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() } } header: { Text("Authentication") } footer: { Text("Use a token authorized to access this Plex server. It is stored in the iPhone Keychain.") }
                 }
                 if kind.isTV {
-                    Section { TextField("XMLTV URL (optional)", text: $guideURL).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled() } header: { Text("Program guide") } footer: { Text("M3U guide URLs are detected from the playlist when available. Xtream Codes uses the provider’s guide unless you specify one here.") }
+                    Section { LabeledContent("XMLTV URL") { TextField("XMLTV URL", text: $guideURL, prompt: Text("Optional")).multilineTextAlignment(.trailing) }.keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled() } header: { Text("Program guide") } footer: { Text("M3U guide URLs are detected from the playlist when available. Xtream Codes uses the provider’s guide unless you specify one here.") }
                 }
                 Section {
                     Toggle("Allow local HTTP", isOn: $allowHTTP).tint(OxaTheme.accent).accessibilityIdentifier("source-http")
@@ -79,6 +79,7 @@ struct SourceEditor: View {
                             busy = false
                         }
     }
+    private var urlLabel: String { kind == .m3u ? "Playlist URL" : kind == .direct ? "Video URL" : kind == .website ? "Library URL" : "Server URL" }
     private var help: String {
         switch kind {
         case .jellyfin: "Enter the full Jellyfin server address, including a port or base path if used. Example: https://media.example.com"
