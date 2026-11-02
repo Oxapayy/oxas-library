@@ -125,6 +125,7 @@ test("large cached library remains responsive during a real download and preserv
       env: { ...process.env, OXA_TEST_HOME: root },
     });
     const p = await app.firstWindow();
+    await p.locator('.category-bar [data-filter="Movies"]').click();
     await expect(p.locator(".poster")).toHaveCount(100);
     await p.getByRole("button", { name: "Show more (100 of 5001)" }).click();
     await expect(p.locator(".poster")).toHaveCount(200);
@@ -170,14 +171,21 @@ test("large cached library remains responsive during a real download and preserv
     ).toBeTruthy();
     await expect(p.locator('.poster[data-retained="yes"]')).toHaveCount(1);
     const latency: number[] = [];
-    for (const page of ["IPTV", "Downloads", "Settings", "Library", "Search"]) {
+    for (const page of [
+      "Live TV",
+      "Downloads",
+      "Settings",
+      "Library",
+      "Search",
+    ]) {
       const start = Date.now();
-      await p.locator(`[data-page="${page}"]`).click();
+      await p.locator(`#sidebar [data-page="${page}"]`).click();
       await expect(
         p.getByRole("heading", { name: page, exact: true }),
       ).toBeVisible();
       latency.push(Date.now() - start);
-      if (page === "IPTV") await expect(p.locator(".channel")).toHaveCount(100);
+      if (page === "Live TV")
+        await expect(p.locator(".channel")).toHaveCount(100);
     }
     await p.getByLabel("Search your library").fill("Film 04999");
     await expect(p.locator(".search-results .row")).toHaveCount(1);

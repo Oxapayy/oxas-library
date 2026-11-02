@@ -62,10 +62,13 @@ test("guest library, real playback, resume, downloads, offline and source remova
       .getByRole("button", { name: "Connect Source", exact: true })
       .click();
     await expect(
-      page.getByRole("button", { name: /fixture.mp4/ }),
+      page.locator(".poster").filter({ hasText: "fixture.mp4" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: /fixture.mp4/ }).click();
-    await page.getByRole("button", { name: "Play", exact: true }).click();
+    await page.locator(".poster").filter({ hasText: "fixture.mp4" }).click();
+    await page
+      .locator("#sheet")
+      .getByRole("button", { name: "Play", exact: true })
+      .click();
     await expect
       .poll(() =>
         page.locator("video").evaluate((v: HTMLVideoElement) => v.currentTime),
@@ -133,7 +136,7 @@ test("guest library, real playback, resume, downloads, offline and source remova
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
     await expect(
-      page.getByRole("heading", { name: "Take your favorites with you." }),
+      page.getByRole("heading", { name: "No downloads yet." }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(

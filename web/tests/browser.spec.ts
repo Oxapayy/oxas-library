@@ -26,6 +26,7 @@ async function detail(page: Page, title: string) {
   await page
     .locator("#content button.poster")
     .filter({ hasText: title })
+    .first()
     .click();
   await expect(page.locator("#sheet")).toBeVisible();
   await expect(page.locator("#sheet h1")).toHaveText(title);
@@ -109,12 +110,12 @@ test("automatic library, film/series-only search, details and Watchlist have no 
     page.locator('#sheet button[data-action="download"]'),
   ).toHaveCount(0);
   await expect(page.locator("#sheet .episode")).toHaveCount(2);
-  await page.locator("#season").selectOption("2");
+  await page.locator("#sheet .season-bar button").filter({ hasText: "Season 2" }).click();
   await expect(page.locator("#sheet .episode h3")).toHaveText("A New Chapter");
   await page.locator('#sheet button[data-action="favorite"]').click();
   await expect(
     page.locator('#sheet button[data-action="favorite"]'),
-  ).toContainText("Saved");
+  ).toContainText("In Watchlist");
   await page.locator('#sheet [data-action="sheet.close"]').click();
   await page.locator('[data-filter="Watchlist"]').click();
   await expect(page.locator("#content button.poster")).toHaveCount(1);
@@ -176,12 +177,9 @@ test("MP4 ranges, captions, fullscreen, resume after reload and HLS media work t
   await expect(page.locator("#player")).toBeHidden();
   await page.reload();
   await expect(
-    page.locator("#content .continue-card").filter({ hasText: "Fixture Film" }),
+    page.locator("#content .hero").filter({ hasText: "Fixture Film" }),
   ).toBeVisible();
-  await page
-    .locator("#content .continue-card")
-    .filter({ hasText: "Fixture Film" })
-    .click();
+  await page.locator('#content .hero [data-action="play"]').click();
   await chooseServer(page);
   await expect
     .poll(() =>
@@ -234,7 +232,7 @@ test("IPTV channel search, guide and live-player HLS use the separate TV tab", a
   page,
 }) => {
   await openLibrary(page);
-  await page.locator('#sidebar [data-page="IPTV"]').click();
+  await page.locator('#sidebar [data-page="Live TV"]').click();
   await expect(page.locator("#content .channel")).toHaveCount(2);
   await page.locator("#channel-query").fill("One");
   await expect(page.locator("#content .channel")).toHaveCount(1);

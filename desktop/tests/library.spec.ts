@@ -177,7 +177,7 @@ test("website episodes, HLS, next episode, full-season offline files, MPEG-TS an
       .getByLabel("Allow local HTTP for this source", { exact: true })
       .check();
     await p.getByRole("button", { name: "Connect Source" }).click();
-    await p.getByRole("button", { name: /Fixture Series/ }).click();
+    await p.locator(".poster").filter({ hasText: "Fixture Series" }).click();
     await expect(
       p.getByRole("heading", { name: "First Episode" }),
     ).toBeVisible();
@@ -185,14 +185,16 @@ test("website episodes, HLS, next episode, full-season offline files, MPEG-TS an
     await expect(
       p.getByText("Injected provider action", { exact: true }),
     ).toHaveCount(0);
-    await expect(p.locator("#season option")).toHaveCount(1);
-    await p.getByRole("button", { name: "☆ Watchlist", exact: true }).click();
+    await expect(p.locator("#sheet .season-bar button")).toHaveCount(0);
+    await p.getByRole("button", { name: "+ Watchlist", exact: true }).click();
     await expect(
-      p.getByRole("button", { name: "★ Saved", exact: true }),
+      p.getByRole("button", { name: "✓ In Watchlist", exact: true }),
     ).toBeVisible();
-    await p.getByRole("button", { name: "★ Saved", exact: true }).click();
+    await p
+      .getByRole("button", { name: "✓ In Watchlist", exact: true })
+      .click();
     await expect(
-      p.getByRole("button", { name: "☆ Watchlist", exact: true }),
+      p.getByRole("button", { name: "+ Watchlist", exact: true }),
     ).toBeVisible();
     await p
       .locator(".episode")
@@ -260,7 +262,7 @@ test("website episodes, HLS, next episode, full-season offline files, MPEG-TS an
       2,
       { timeout: 15000 },
     );
-    await p.getByRole("button", { name: "IPTV", exact: true }).click();
+    await p.locator('#sidebar [data-page="Live TV"]').click();
     await expect(p.getByText("Now on Fixture", { exact: true })).toBeVisible();
     await p.getByRole("button", { name: "Program Guide" }).click();
     await expect(

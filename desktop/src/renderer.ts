@@ -39,7 +39,8 @@ const icons: any = {
   Library:
     '<rect x="4" y="6" width="16" height="15" rx="3"/><path d="M7 3h10M8 10h8"/>',
   Search: '<circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/>',
-  IPTV: '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8M12 18v4"/>',
+  "Live TV":
+    '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8M12 18v4"/>',
   Downloads:
     '<circle cx="12" cy="12" r="10"/><path d="M12 6v12m-5-5 5 5 5-5"/>',
   Settings:
@@ -167,7 +168,7 @@ function sidebar() {
     )
     .join(
       "",
-    )}</nav><button class="sidebar-account" data-action="account.open">${account.signedIn ? "Your account" : "Sign in"}<small>${esc(account.email || "Your collection. On your terms.")}</small></button>`;
+    )}</nav><button class="sidebar-account" data-action="account.open">${account.signedIn ? "Your account" : "Sign in"}<small>${esc(account.email || "Optional. Syncs your library")}</small></button>`;
   if (html !== lastSidebarHTML) {
     $("#sidebar").innerHTML = html;
     lastSidebarHTML = html;
@@ -182,7 +183,7 @@ function render() {
       ? library()
       : page === "Search"
         ? search()
-        : page === "IPTV"
+        : page === "Live TV"
           ? iptv()
           : page === "Downloads" && downloadsEnabled
             ? downloads()
@@ -214,6 +215,39 @@ function updateBanner() {
             : `<p><strong>Oxa’s Library ${v} is ready.</strong> Quit Oxa’s Library, then drag the new version into Applications and choose Replace. Your library stays in place.</p><div class="source-actions">${button("Open Installer", "update.install", {}, true)}</div>`
           : `<p class="error">${esc(u.error || "The update could not be downloaded.")}</p><div class="source-actions">${button("Try Again", "update.download", {}, true)}${button("What’s New", "external", { target: "updateNotes" })}</div>`;
   return `<section class="notice update-banner" role="status">${body}</section>`;
+}
+const svg: any = {
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.6v.4"/>',
+};
+const iconButton = (icon: string, action: string, args: any, label: string) =>
+  `<button type="button" class="icon-button" data-action="${esc(action)}" data-args="${esc(JSON.stringify(args))}" aria-label="${esc(label)}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg[icon]}</svg></button>`;
+const seriesOf = (m: any) =>
+  m.kind === "episode"
+    ? state.media.find((x: any) => x.kind === "series" && x.id === m.seriesID)
+    : undefined;
+const resuming = (m: any) => m?.progress?.seconds > 0 && !m.progress.completed;
+const progressBar = (m: any) =>
+  `<progress max="${esc(m.progress.duration || 1)}" value="${esc(m.progress.seconds)}" aria-label="Watch progress"></progress>`;
+function continueCard(m: any, fresh = false) {
+  return `<button class="continue-card" data-action="play" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.backdrop || m.poster) || '<div class="still"></div>'}<div class="copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small>${fresh ? "<span>New episode</span>" : `${progressBar(m)}<small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} left</small>`}</div></button>`;
+}
+// The large card at the top of the library: what you were watching, or a title to start.
+function hero(m: any, continuing: boolean) {
+  const listed = seriesOf(m) || m,
+    name = m.seriesTitle || m.title,
+    going = resuming(m);
+  return `${continuing ? "<h2>Continue Watching</h2>" : ""}<section class="hero" aria-label="${esc(name)}"><div class="hero-art" aria-hidden="true">${image(m.backdrop || m.poster)}</div><div class="hero-copy"><h3>${esc(name)}</h3><p>${esc(episodeLabel(m))}</p>${going ? `${progressBar(m)}<small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} left</small>` : ""}<div class="hero-actions">${button(going ? "Resume" : "Play", "play", { id: m.id }, true)}<span class="glass-pill">${iconButton(listed.favorite ? "check" : "plus", "favorite", { id: listed.id }, listed.favorite ? `Remove ${listed.title} from watchlist` : `Add ${listed.title} to watchlist`)}${iconButton("info", "detail", { id: listed.id }, `Details for ${listed.title}`)}</span></div></div></section>`;
+}
+function shelf(
+  title: string,
+  items: any[],
+  card: (m: any) => string,
+  all = "",
+) {
+  if (!items.length) return "";
+  return `<section class="shelf" aria-label="${esc(title)}"><div class="section-heading"><h2>${esc(title)}</h2>${all && items.length > 12 ? `<button type="button" class="quiet" data-filter="${esc(all)}">See all ${items.length}</button>` : `<span class="muted">${items.length}</span>`}</div><div class="shelf-row">${items.slice(0, 40).map(card).join("")}</div></section>`;
 }
 function poster(m: any) {
   return `<button class="poster" data-action="detail" data-args="${esc(JSON.stringify({ id: m.id }))}"><span class="cover">${image(m.poster || m.backdrop) || "▷"}</span><strong>${esc(m.title)}</strong><small>${esc(episodeLabel(m))}</small></button>`;
@@ -249,34 +283,16 @@ function library() {
   if (filter === "Series") rows = rows.filter((m: any) => m.kind === "series");
   if (filter === "Watchlist") rows = rows.filter((m: any) => m.favorite);
   if (source) rows = rows.filter((m: any) => m.sourceID === source);
-  return (
-    heading(
-      "Library",
-      button("Refresh", "refresh") +
-        button("+ Add Source", "source.form", {}, true),
-    ) +
-    (state.sources.length
-      ? `<div class="toolbar"><div class="segments">${["All", "Movies", "Series", "Watchlist"].map((x) => `<button data-filter="${x}" aria-pressed="${filter === x}">${x}</button>`).join("")}</div><span class="spacer"></span><select id="source-filter" aria-label="Source"><option value="">All sources</option>${state.sources.map((s: any) => `<option value="${esc(s.id)}" ${s.id === source ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></div>`
-      : "") +
-    (newEpisodes.length
-      ? `<h2>New Episodes</h2><div class="continue">${newEpisodes
-          .slice(0, visibleCount("new-episodes"))
-          .map(
-            (m: any) =>
-              `<button class="continue-card" data-action="play" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.backdrop || m.poster) || '<div class="still"></div>'}<div class="copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))} · ${esc(m.title)}</small><span>▶ Play Episode</span></div></button>`,
-          )
-          .join("")}</div>${showMore("new-episodes", newEpisodes.length)}`
-      : "") +
-    (continued.length
-      ? `<h2>Continue Watching</h2><div class="continue">${continued
-          .slice(0, visibleCount("continued"))
-          .map(
-            (m: any) =>
-              `<button class="continue-card" data-action="play" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.backdrop || m.poster) || '<div class="still"></div>'}<div class="copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small><progress max="${esc(m.progress.duration || 1)}" value="${esc(m.progress.seconds)}"></progress><small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} remaining</small></div></button>`,
-          )
-          .join("")}</div>${showMore("continued", continued.length)}`
-      : "") +
-    (webMode && state.initializing && !rows.length
+  const watching = continued.filter(
+      (m: any) => !source || m.sourceID === source,
+    ),
+    featured = filter === "All" ? watching[0] || rows[0] : rows[0],
+    refreshing = state.sources.some((s: any) => s.refreshing);
+  const bar = state.sources.length
+    ? `<div class="library-bar"><div class="category-bar" role="group" aria-label="Show">${["All", "Movies", "Series", "Watchlist"].map((x) => `<button type="button" data-filter="${x}" aria-pressed="${filter === x}">${x}</button>`).join("")}<button type="button" data-page="Live TV">Live TV</button></div>${iconButton("plus", "source.form", {}, "Add source")}<span class="spacer"></span>${state.sources.length > 1 ? `<select id="source-filter" aria-label="Source"><option value="">All sources</option>${state.sources.map((s: any) => `<option value="${esc(s.id)}" ${s.id === source ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select>` : ""}${button("Refresh", "refresh")}</div>`
+    : "";
+  const empty =
+    webMode && state.initializing && !rows.length
       ? blank(
           "Connecting your library…",
           state.loadingMessage ||
@@ -289,16 +305,49 @@ function library() {
             button("Import huhu.to", "source.huhu", {}, true) +
               button("Connect Your Own Server", "source.form"),
           )
-        : rows.length
-          ? `<div class="section-heading"><h2>${filter === "All" ? "Your Collection" : esc(filter)}</h2><span class="muted">${rows.length}</span></div><div class="grid">${rows.slice(0, visibleCount("library")).map(poster).join("")}</div><div class="section-heading">${showMore("library", rows.length)}${button("Load more from sources", "more")}</div>`
-          : blank(
-              state.sources.some((s: any) => s.refreshing)
-                ? "Loading your library…"
-                : "No titles here yet.",
-              state.sources.some((s: any) => s.refreshing)
-                ? "You can keep using the app while your sources update."
-                : "Refresh your source or check its connection in Settings.",
-            )) +
+        : !featured
+          ? filter === "Watchlist"
+            ? blank(
+                "Your watchlist is empty.",
+                "Choose + on a film or series to keep it here.",
+              )
+            : blank(
+                refreshing ? "Loading your library…" : "No titles here yet.",
+                refreshing
+                  ? "You can keep using the app while your sources update."
+                  : "Refresh your source or check its connection in Settings.",
+              )
+          : "";
+  const body =
+    empty ||
+    hero(featured, featured === watching[0]) +
+      (filter === "All"
+        ? shelf("Also watching", watching.slice(1), (m) => continueCard(m)) +
+          shelf("New Episodes", newEpisodes, (m) => continueCard(m, true)) +
+          shelf(
+            "Watchlist",
+            rows.filter((m: any) => m.favorite),
+            poster,
+            "Watchlist",
+          ) +
+          shelf(
+            "Movies",
+            rows.filter((m: any) => m.kind === "movie"),
+            poster,
+            "Movies",
+          ) +
+          shelf(
+            "Series",
+            rows.filter((m: any) => m.kind === "series"),
+            poster,
+            "Series",
+          ) +
+          `<div class="section-heading">${button("Load more from sources", "more")}</div>`
+        : `<div class="section-heading"><h2>${esc(filter)}</h2><span class="muted">${rows.length}</span></div><div class="grid">${rows.slice(0, visibleCount("library")).map(poster).join("")}</div><div class="section-heading">${showMore("library", rows.length)}${button("Load more from sources", "more")}</div>`);
+  return (
+    '<h1 class="sr-only">Library</h1>' +
+    bar +
+    body +
     state.sources
       .filter((s: any) => s.error)
       .map((s: any) => `<p class="error">${esc(s.name)}: ${esc(s.error)}</p>`)
@@ -331,8 +380,10 @@ function search() {
       .join("")}</div>${showMore("search", rows.length)}` +
     (!rows.length
       ? blank(
-          "Find your next watch.",
-          "Search connected libraries for films and series.",
+          q ? "No matching titles." : "Nothing to search yet.",
+          q
+            ? "Try a different title or refresh your sources."
+            : "Connect a source to search your films and series here.",
         )
       : "")
   );
@@ -361,24 +412,38 @@ function iptv() {
   const now = Date.now() / 1000 - 978307200;
   return (
     heading(
-      "IPTV",
-      button("+ Add Playlist", "source.form", { kind: "M3U playlist" }, true),
+      "Live TV",
+      rows.length || group || starred || query
+        ? button(
+            "+ Add Playlist",
+            "source.form",
+            { kind: "M3U playlist" },
+            true,
+          )
+        : "",
     ) +
-    `<div class="toolbar">${button(starred ? "★ Favorites" : "☆ All channels", "channels.favorites")}<input id="channel-query" type="search" aria-label="Search channels" placeholder="Find a channel" value="${esc(query)}"><select id="channel-group" aria-label="Channel group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}" ${group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select></div><p>${rows.length} channels</p><div class="channel-list">${rows
-      .slice(0, visibleCount("channels"))
-      .map((m: any) => {
-        const p = channelPrograms
-          .get(m.id)
-          ?.find((p: any) => p.start <= now && p.end > now);
-        return `<article class="channel">${image(m.poster) || '<span class="station" aria-hidden="true">▱</span>'}<div class="text"><strong>${esc(m.title)}</strong><small>${esc(p?.title || m.group || "Live TV")}</small>${p ? `<progress max="${p.end - p.start}" value="${now - p.start}"></progress>` : ""}${button("Program Guide", "guide", { id: m.id })}</div>${livePlay(m)}${button(m.favorite ? "★" : "☆", "favorite", { id: m.id })}</article>`;
-      })
-      .join("")}</div>${showMore("channels", rows.length)}` +
-    (!rows.length
+    (!state.media.some((m: any) => m.kind === "channel")
       ? blank(
-          "Live TV, in your library.",
-          "Add your M3U playlist, Xtream Codes account or a library with live channels.",
+          "No live channels yet.",
+          "Add an M3U playlist or Xtream Codes login to see your channels and their program guide here.",
+          button(
+            "Add IPTV Source",
+            "source.form",
+            { kind: "M3U playlist" },
+            true,
+          ),
         )
-      : "")
+      : `<div class="toolbar">${button(starred ? "★ Favorites" : "☆ All channels", "channels.favorites")}<input id="channel-query" type="search" aria-label="Search channels" placeholder="Find a channel" value="${esc(query)}"><select id="channel-group" aria-label="Channel group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}" ${group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select></div><p>${rows.length} channels</p><div class="channel-list">${rows
+          .slice(0, visibleCount("channels"))
+          .map((m: any) => {
+            const p = channelPrograms
+              .get(m.id)
+              ?.find((p: any) => p.start <= now && p.end > now);
+            return `<article class="channel">${image(m.poster) || '<span class="station" aria-hidden="true">▱</span>'}<div class="text"><strong>${esc(m.title)}</strong>${p?.title || m.group ? `<small>${esc(p?.title || m.group)}</small>` : ""}${p ? `<progress max="${p.end - p.start}" value="${now - p.start}"></progress>` : ""}${button("Program Guide", "guide", { id: m.id })}</div>${livePlay(m)}${button(m.favorite ? "★" : "☆", "favorite", { id: m.id })}</article>`;
+          })
+          .join(
+            "",
+          )}</div>${showMore("channels", rows.length)}${!rows.length ? "<p>No channels match this search or filter.</p>" : ""}`)
   );
 }
 function downloads() {
@@ -395,7 +460,7 @@ function downloads() {
           )
           .join("") + showMore("downloads", state.transfers.length)
       : blank(
-          "Take your favorites with you.",
+          "No downloads yet.",
           "Open a film or episode and choose Download. You can save an entire season from its series page.",
         ))
   );
@@ -435,11 +500,12 @@ function settings() {
       )
       .join(
         "",
-      )}</select></label></div></section><section class="setting-section"><div><h3>Optional metadata</h3><p>Find artwork and descriptions with your own TMDB API read token. Searches send the title to TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p></div><div class="panel"><form id="metadata-form"><label>TMDB API read token<input name="token" type="password" autocomplete="off" placeholder="Paste a token, or leave blank to disable"></label><button type="submit">Save Metadata Settings</button></form></div></section>${downloadsEnabled ? `<section class="setting-section"><div><h3>Download location</h3><p>Offline video stays on this device. Moving the folder also moves saved downloads.</p></div><div class="panel"><p>${esc(p.downloadDirectory || "Application storage")}</p>${button("Choose Folder…", "downloadDirectory")}</div></section>` : ""}<section class="setting-section"><div><h3>Oxa’s Library</h3><p>Version ${esc(state.version)} · ${webMode ? "Web" : state.platform === "darwin" ? "macOS" : "Windows"}<br>Open source. Your collection. On your terms.</p></div><div class="panel">${button("Website", "external", { target: "website" })} ${button("Source Code", "external", { target: "github" })} ${button("Releases", "external", { target: "release" })}${webMode ? "" : ` ${button("Check for Updates", "update.check.manual")}`} ${button("Licenses", "licenses")}</div></section><section class="setting-section"><div><h3>Support Oxa</h3><p>Optional donations help support development. All features stay free.</p></div><div class="panel"><p>Bitcoin · BTC</p><code>3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV</code>${button("Copy Bitcoin Address", "donation.copy", { network: "bitcoin" })}<p>Litecoin · LTC</p><code>MTToUVnMpepWixDhUPBBG1SgdmxjifArwF</code>${button("Copy Litecoin Address", "donation.copy", { network: "litecoin" })}</div></section></div>`
+      )}</select></label></div></section><section class="setting-section"><div><h3>Optional metadata</h3><p>Find artwork and descriptions with your own TMDB API read token. Searches send the title to TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p></div><div class="panel"><form id="metadata-form"><label>TMDB API read token<input name="token" type="password" autocomplete="off" placeholder="Paste a token, or leave blank to disable"></label><button type="submit">Save Metadata Settings</button></form></div></section>${downloadsEnabled ? `<section class="setting-section"><div><h3>Download location</h3><p>Offline video stays on this device. Moving the folder also moves saved downloads.</p></div><div class="panel"><p>${esc(p.downloadDirectory || "Application storage")}</p>${button("Choose Folder…", "downloadDirectory")}</div></section>` : ""}<section class="setting-section"><div><h3>Oxa’s Library</h3><p>Version ${esc(state.version)} · ${webMode ? "Web" : state.platform === "darwin" ? "macOS" : "Windows"}<br>Open source. Films, series and live TV from your own sources.</p></div><div class="panel">${button("Website", "external", { target: "website" })} ${button("Source Code", "external", { target: "github" })} ${button("Releases", "external", { target: "release" })}${webMode ? "" : ` ${button("Check for Updates", "update.check.manual")}`} ${button("Licenses", "licenses")}</div></section><section class="setting-section"><div><h3>Support Oxa</h3><p>Optional donations help support development. All features stay free.</p></div><div class="panel"><p>Bitcoin · BTC</p><code>3KZ8qzJpBZSj9BazUMqUcG761UpVivQKGV</code>${button("Copy Bitcoin Address", "donation.copy", { network: "bitcoin" })}<p>Litecoin · LTC</p><code>MTToUVnMpepWixDhUPBBG1SgdmxjifArwF</code>${button("Copy Litecoin Address", "donation.copy", { network: "litecoin" })}</div></section></div>`
   );
 }
-function sheet(title: string, html: string) {
+function sheet(title: string, html: string, cls = "") {
   const d = $("#sheet");
+  d.className = cls;
   d.innerHTML = `<header><h2>${esc(title)}</h2><button data-action="sheet.close" aria-label="Close">×</button></header>${html}`;
   if (!d.open) d.showModal();
 }
@@ -457,12 +523,11 @@ async function openDetail(id: string) {
     )
       detailData.episodes = await cmd("season", { id, number: seasonNumber });
     drawDetail();
-  } catch (error) {
-    if (!webMode) throw error;
+  } catch (error: any) {
     detailData = null;
     sheet(
       "Couldn’t open this title",
-      `<p>Check the source connection and try again.</p><div class="dialog-actions">${button("Close", "sheet.close")}${button("Retry", "detail", { id }, true)}</div>`,
+      `<p>${esc(webMode || !error?.message ? "Check the source connection and try again." : error.message)}</p><div class="dialog-actions">${button("Close", "sheet.close")}${button("Retry", "detail", { id }, true)}</div>`,
     );
   }
 }
@@ -476,23 +541,73 @@ function drawDetail() {
       ? d.seasons
       : [...new Set(d.episodes.map((e: any) => e.season || 1))]
           .sort((a: number, b: number) => a - b)
-          .map((number) => ({ number }));
+          .map((number) => ({ number })),
+    listed = seriesOf(m) || m,
+    target =
+      m.kind === "series"
+        ? d.episodes
+            .filter(resuming)
+            .sort(
+              (a: any, b: any) =>
+                (b.progress.playedAt || 0) - (a.progress.playedAt || 0),
+            )[0] ||
+          d.episodes.find((e: any) => !e.progress?.completed) ||
+          d.episodes[0]
+        : m,
+    going = resuming(target),
+    meta = [
+      m.year,
+      m.kind === "series"
+        ? "Series"
+        : m.kind === "episode"
+          ? `S${m.season || 1} · E${m.episode || 1} · ${m.title}`
+          : "Movie",
+      m.duration >= 60 ? `${Math.round(m.duration / 60)} min` : "",
+      state.sources.find((s: any) => s.id === m.sourceID)?.name,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   sheet(
     m.kind === "series" ? "Series" : "Details",
-    `${image(m.backdrop || m.poster, "", "detail-art")}<div class="detail-heading"><div class="text"><h1>${esc(m.seriesTitle || m.title)}</h1><p>${esc(episodeLabel(m))}</p></div>${button(m.favorite ? "★ Saved" : "☆ Watchlist", "favorite", { id: m.id })}</div><div class="detail-actions">${["movie", "series"].includes(m.kind) && state.preferences.externalMetadata ? button("Find Artwork", "metadata.search", { id: m.id }) : ""}${m.kind !== "series" ? button(m.progress?.seconds && !m.progress.completed ? `Resume at ${time(m.progress.seconds)}` : "Play", "play", { id: m.id }, true) + (downloadsEnabled ? button("Download", "download", { id: m.id }) : "") : ""}</div><p>${esc(m.overview || "")}</p>${
+    `<div class="detail-hero"><div class="detail-art-wrap" aria-hidden="true">${image(m.backdrop || m.poster, "", "detail-art")}</div><div class="detail-title"><h1>${esc(m.seriesTitle || m.title)}</h1><p>${esc(meta)}</p></div></div><div class="detail-body"><div class="detail-actions">${target ? button(going ? `Resume at ${time(target.progress.seconds)}` : "Play", "play", { id: target.id }, true) : ""}<span class="glass-pill">${button(listed.favorite ? "✓ In Watchlist" : "+ Watchlist", "favorite", { id: listed.id })}${m.kind !== "series" && downloadsEnabled ? button("Download", "download", { id: m.id }) : ""}</span>${["movie", "series"].includes(m.kind) && state.preferences.externalMetadata ? button("Find Artwork", "metadata.search", { id: m.id }) : ""}</div>${
+      going
+        ? `<div class="resume-block">${m.kind === "series" ? `<strong>${esc(episodeLabel(target))}</strong>` : ""}${progressBar(target)}<small>${time(Math.max(0, target.progress.duration - target.progress.seconds))} left</small></div>`
+        : m.kind === "series" && target
+          ? `<p class="muted">Starts with ${esc(episodeLabel(target))}</p>`
+          : ""
+    }<p class="overview">${esc(m.overview || "")}</p>${
       m.kind === "series"
-        ? `<div class="section-heading"><h2>Episodes</h2><select id="season" aria-label="Season">${seasons.map((s: any) => `<option value="${esc(s.number)}" ${seasonNumber === s.number ? "selected" : ""}>Season ${esc(s.number)}</option>`).join("")}</select></div>${downloadsEnabled ? button(`Download Season ${seasonNumber}`, "download", { id: m.id, season: seasonNumber }) : ""}${
+        ? `<div class="section-heading"><h2>Episodes</h2>${downloadsEnabled ? button(`Download Season ${seasonNumber}`, "download", { id: m.id, season: seasonNumber }) : ""}</div>${seasons.length > 1 ? `<div class="season-bar" role="group" aria-label="Season">${seasons.map((s: any) => `<button type="button" data-season="${esc(s.number)}" aria-pressed="${seasonNumber === s.number}">Season ${esc(s.number)}</button>`).join("")}</div>` : ""}${
             episodes
               .slice(0, visibleCount("episodes"))
               .map(
                 (e: any) =>
-                  `<article class="episode"><div class="row"><div class="text"><small>S${esc(e.season || 1)} · E${esc(e.episode || 1)}${e.progress?.completed ? " · Watched" : ""}</small><h3>${esc(e.title)}</h3></div>${button(e.progress?.seconds && !e.progress.completed ? "Resume" : "Play", "play", { id: e.id }, true)}</div><p>${esc(e.overview || "")}</p><footer>${downloadsEnabled ? button(e.download ? "Downloaded" : "Download", "download", { id: e.id }) : ""}${e.progress?.seconds ? `<small>Resume at ${time(e.progress.seconds)}</small>` : ""}</footer></article>`,
+                  `<article class="episode"><button type="button" class="episode-thumb" data-action="play" data-args="${esc(JSON.stringify({ id: e.id }))}" aria-label="${resuming(e) ? "Resume" : "Play"}">${image(e.backdrop || e.poster) || '<span class="still"></span>'}<span class="badge" aria-hidden="true">▶</span>${resuming(e) ? progressBar(e) : ""}</button><div class="text"><small>S${esc(e.season || 1)} · E${esc(e.episode || 1)}${e.progress?.completed ? " · Watched" : ""}</small><h3>${esc(e.title)}</h3>${resuming(e) ? `<small>Resume at ${time(e.progress.seconds)}</small>` : ""}<p>${esc(e.overview || "")}</p>${downloadsEnabled ? button(e.download ? "Downloaded" : "Download", "download", { id: e.id }) : ""}</div></article>`,
               )
               .join("") || "<p>Choose a season to load its episodes.</p>"
           }${showMore("episodes", episodes.length)}`
         : ""
-    }`,
+    }</div>`,
+    "detail-sheet",
   );
+}
+async function chooseSeason(number: number) {
+  seasonNumber = number;
+  visibleCounts.delete("episodes");
+  drawDetail();
+  const current = detailData,
+    have = current.episodes.some((e: any) => e.season === number);
+  try {
+    const rows = await cmd("season", { id: current.media.id, number });
+    if (detailData !== current || (!rows?.length && have)) return;
+    current.episodes = current.episodes
+      .filter((x: any) => x.season !== number)
+      .concat(rows || []);
+    drawDetail();
+  } catch (error) {
+    // Episodes already in the library stay usable when a season cannot be reloaded.
+    if (!have) throw error;
+  }
 }
 function sourceForm(args: any = {}) {
   const s = state.sources.find((s: any) => s.id === args.id);
@@ -941,6 +1056,10 @@ document.addEventListener("click", (event: any) => {
     render();
     return;
   }
+  if (b.dataset.season && detailData) {
+    void run(() => chooseSeason(Number(b.dataset.season)));
+    return;
+  }
   if (b.dataset.action)
     void run(async () => {
       const a = b.dataset.action,
@@ -1116,7 +1235,7 @@ document.addEventListener("click", (event: any) => {
         state = result;
         render();
       }
-      if (a === "favorite" && detailData) {
+      if (a === "favorite" && detailData && $("#sheet").open) {
         const m = state.media.find((m: any) => m.id === detailData.media.id);
         if (m) {
           detailData.media.favorite = m.favorite;
@@ -1229,18 +1348,6 @@ document.addEventListener("change", (event: any) => {
     if (e.id === "channel-group") {
       group = e.value;
       render();
-    }
-    if (e.id === "season") {
-      seasonNumber = Number(e.value);
-      visibleCounts.delete("episodes");
-      const rows = await cmd("season", {
-        id: detailData.media.id,
-        number: seasonNumber,
-      });
-      detailData.episodes = detailData.episodes
-        .filter((x: any) => x.season !== seasonNumber)
-        .concat(rows);
-      drawDetail();
     }
     if (["autoplay", "audio-language", "subtitle-language"].includes(e.id)) {
       await cmd("preferences", {

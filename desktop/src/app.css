@@ -954,3 +954,387 @@ input[role="switch"]:checked::after {
   font-size: 12px;
   margin-block: 8px 16px;
 }
+
+/* Shared with the iPhone app since 1.3.6: near-black ground, white pill actions,
+   translucent pill groups and poster-first rows. */
+html,
+body {
+  background: #0a0a0a;
+}
+button.primary {
+  background: #f5f5f5;
+  color: #0a0a0a;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.library-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 28px;
+}
+.category-bar,
+.season-bar,
+.glass-pill {
+  background: #ffffff12;
+  border: 1px solid #ffffff1f;
+  border-radius: 999px;
+}
+.category-bar,
+.season-bar {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.category-bar button,
+.season-bar button {
+  flex: none;
+  background: transparent;
+  color: #ffffffb8;
+  font-weight: 500;
+  padding: 8px 16px;
+  min-height: 38px;
+  border-radius: 999px;
+}
+.category-bar button:hover,
+.season-bar button:hover {
+  background: #ffffff14;
+  color: #fff;
+}
+.category-bar button[aria-pressed="true"],
+.season-bar button[aria-pressed="true"] {
+  background: #f5f5f5;
+  color: #0a0a0a;
+  font-weight: 700;
+}
+.season-bar {
+  margin: 0 0 20px;
+}
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0;
+  border-radius: 50%;
+}
+.icon-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.library-bar > .icon-button {
+  background: #ffffff12;
+  border: 1px solid #ffffff1f;
+}
+.library-bar > .icon-button:hover {
+  background: #ffffff24;
+}
+.hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: 420px;
+  margin: 0 0 40px;
+  overflow: hidden;
+  border: 1px solid #ffffff1f;
+  border-radius: 24px;
+  background: #161616;
+}
+.hero-art,
+.hero-art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to top, #000000f0 0%, #000000b3 42%, #0000 78%),
+    linear-gradient(to right, #0000008c, #0000 62%);
+}
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 580px;
+  padding: 32px;
+}
+.hero-copy h3 {
+  margin: 0 0 8px;
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: -0.8px;
+}
+.hero-copy p {
+  margin: 0 0 14px;
+  color: #ffffffd1;
+  font-weight: 500;
+}
+.hero-copy progress {
+  margin: 2px 0 6px;
+}
+.hero-copy small {
+  margin: 0 0 18px;
+  color: #ffffffc4;
+  font-variant-numeric: tabular-nums;
+}
+.hero-actions,
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.hero-actions button.primary,
+.detail-actions button.primary {
+  min-height: 50px;
+  padding: 0 30px;
+  font-size: 16px;
+}
+.glass-pill {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+.glass-pill > button {
+  min-height: 50px;
+  padding: 0 18px;
+  border-radius: 0;
+  background: transparent;
+}
+.glass-pill > .icon-button {
+  width: 50px;
+  height: 50px;
+  min-height: 50px;
+  padding: 0;
+}
+.glass-pill > button + button {
+  border-left: 1px solid #ffffff33;
+}
+.glass-pill > button:hover {
+  background: #ffffff17;
+}
+.shelf {
+  margin: 0 0 30px;
+}
+.shelf .section-heading {
+  margin: 0 0 14px;
+}
+.shelf-row {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+.shelf-row > .poster {
+  flex: 0 0 150px;
+}
+.shelf-row > .continue-card {
+  flex: 0 0 300px;
+}
+.poster .cover {
+  border: 1px solid #ffffff14;
+  border-radius: 12px;
+}
+.continue-card span {
+  color: #b4b4b4;
+  font-size: 13px;
+}
+#sheet.detail-sheet {
+  padding: 0 0 28px;
+  overflow-x: hidden;
+}
+#sheet.detail-sheet > header {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  margin: 0;
+}
+#sheet.detail-sheet > header h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+#sheet.detail-sheet > header button {
+  background: #0000008c;
+}
+.detail-hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: 380px;
+  background: #161616;
+}
+.detail-art-wrap,
+.detail-hero .detail-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+  aspect-ratio: auto;
+  object-fit: cover;
+}
+.detail-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, #151517 0%, #151517cc 38%, #15151700 75%);
+}
+.detail-title {
+  position: relative;
+  z-index: 1;
+  padding: 0 28px 6px;
+}
+.detail-title h1 {
+  font-size: 34px;
+}
+.detail-title p {
+  margin: 6px 0 0;
+  color: #ffffffcc;
+  font-weight: 500;
+}
+.detail-body {
+  padding: 0 28px;
+}
+.detail-actions {
+  margin: 20px 0 16px;
+}
+.resume-block {
+  display: grid;
+  gap: 6px;
+  max-width: 440px;
+  margin: 0 0 12px;
+}
+.resume-block small {
+  font-variant-numeric: tabular-nums;
+}
+.detail-body .overview {
+  margin: 8px 0 24px;
+  color: #ffffffd1;
+}
+.episode {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 18px;
+  margin: 0 0 22px;
+  padding: 0;
+  background: transparent;
+}
+.episode-thumb {
+  position: relative;
+  align-self: start;
+  aspect-ratio: 16/9;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #ffffff14;
+  border-radius: 12px;
+  background: #1c1c1e;
+}
+.episode-thumb img,
+.episode-thumb .still {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.episode-thumb .badge {
+  position: absolute;
+  left: 10px;
+  bottom: 12px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #f5f5f5;
+  color: #0a0a0a;
+  font-size: 12px;
+}
+.episode-thumb progress {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 4px;
+  width: auto;
+  height: 3px;
+}
+.episode .text h3 {
+  margin: 2px 0 4px;
+}
+.episode .text p {
+  margin: 6px 0 10px;
+  font-size: 14px;
+}
+.episode .text button {
+  min-height: 34px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  .hero {
+    min-height: 460px;
+  }
+  .hero-copy {
+    padding: 20px;
+  }
+  .hero-copy h3,
+  .detail-title h1 {
+    font-size: 28px;
+  }
+  .hero-actions button.primary {
+    flex: 1;
+  }
+  .shelf-row > .poster {
+    flex-basis: 120px;
+  }
+  .shelf-row > .continue-card {
+    flex-basis: 260px;
+  }
+  .detail-hero {
+    min-height: 300px;
+  }
+  .detail-title,
+  .detail-body {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  .episode {
+    grid-template-columns: 132px 1fr;
+    gap: 14px;
+  }
+}
+@media (pointer: coarse) {
+  button,
+  select,
+  input {
+    min-height: 44px;
+  }
+}
