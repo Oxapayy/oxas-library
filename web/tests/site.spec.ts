@@ -26,7 +26,7 @@ test('marketing section controls keep the address clean and link to /web', async
   await page.goto(origin + '/');
   await expect(page.locator('a[href^="#"]')).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Open Web App', exact: true })).toHaveAttribute('href', '/web');
-  await page.getByRole('button', { name: 'Explore', exact: true }).click();
+  await page.getByRole('button', { name: 'Features', exact: true }).click();
   await expect(page).toHaveURL(origin + '/');
   await expect(page.locator('#inside h2')).toBeFocused();
   await page.locator('.nav-download').click();

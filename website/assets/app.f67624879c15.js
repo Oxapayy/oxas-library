@@ -39,17 +39,6 @@ if (consent) {
   });
 }
 
-// A brief arrival for each block, once.
-if ('IntersectionObserver' in window && !reduceMotion.matches) {
-  for (const group of document.querySelectorAll('.hero, .page-hero, .tiles, .platforms, .guide-grid, section')) {
-    group.querySelectorAll(':scope > .reveal, :scope > .section-head > .reveal').forEach((element, index) => element.style.setProperty('--delay', Math.min(index, 5) * 70 + 'ms'));
-  }
-  const observer = new IntersectionObserver(entries => {
-    for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.add('in'); observer.unobserve(entry.target); }
-  }, { threshold: .1 });
-  document.querySelectorAll('.reveal').forEach(element => observer.observe(element));
-} else document.querySelectorAll('.reveal').forEach(element => element.classList.add('in'));
-
 for (const button of document.querySelectorAll('[data-copy-address]')) button.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(button.dataset.copyAddress); document.querySelector('#copy-status').textContent = 'Address copied.'; }
   catch { document.querySelector('#copy-status').textContent = 'Select and copy the address above.'; }
