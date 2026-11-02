@@ -42,7 +42,7 @@ struct ArtView: View {
                 OxaTheme.surface
                 if media.id.hasPrefix("preview-") {
                     Image(media.id == "preview-episode" ? "preview-series" : media.id).resizable().scaledToFill()
-                } else if let url = wide ? (media.backdrop ?? media.poster) : media.poster, ["https", "http"].contains(url.scheme ?? "") {
+                } else if let url = wide ? (media.backdrop ?? media.poster) : (media.poster ?? media.backdrop), ["https", "http"].contains(url.scheme ?? "") {
                     fallback
                     SafeArtwork(url: url, sourceID: media.sourceID, pixelSize: min(1200, Int(max(geometry.size.width, geometry.size.height) * 2)))
                 } else { fallback }
@@ -128,7 +128,7 @@ struct HeroCard: View {
         let saved = store.state.favorites.contains(listed.id)
         ZStack(alignment: .bottomLeading) {
             ArtView(media: media).frame(height: 460)
-            LinearGradient(colors: [.clear, .black.opacity(0.55), .black.opacity(0.92)], startPoint: .center, endPoint: .bottom)
+            LinearGradient(colors: [.clear, .black.opacity(0.7), .black.opacity(0.94)], startPoint: UnitPoint(x: 0.5, y: 0.3), endPoint: .bottom)
             VStack(alignment: .leading, spacing: 14) {
                 Text(media.displayTitle).font(.title.weight(.bold)).foregroundStyle(.white).lineLimit(2)
                 Text([media.kind == .episode ? "\(media.episodeLabel) · \(media.title)" : nil, media.year.map(String.init), media.kind == .series ? "Series" : media.kind == .movie ? "Film" : nil].compactMap { $0 }.joined(separator: " · ")).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.8)).lineLimit(1)

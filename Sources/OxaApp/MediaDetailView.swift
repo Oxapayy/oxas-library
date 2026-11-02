@@ -24,7 +24,7 @@ struct MediaDetailView: View {
             LazyVStack(alignment: .leading, spacing: 24) {
                 ZStack(alignment: .bottomLeading) {
                     ArtView(media: current, wide: false).frame(height: 520).frame(maxWidth: .infinity)
-                    LinearGradient(colors: [OxaTheme.ground.opacity(0), OxaTheme.ground.opacity(0.7), OxaTheme.ground], startPoint: .center, endPoint: .bottom)
+                    LinearGradient(colors: [OxaTheme.ground.opacity(0), OxaTheme.ground.opacity(0.8), OxaTheme.ground], startPoint: UnitPoint(x: 0.5, y: 0.3), endPoint: .bottom)
                     VStack(alignment: .leading, spacing: 10) {
                         Text(current.displayTitle).font(.system(size: titleSize, weight: .bold)).tracking(-0.5).foregroundStyle(.white).lineLimit(3)
                         Text([current.year.map(String.init), media.kind == .series ? "Series" : media.kind == .episode ? "\(media.episodeLabel) · \(current.title)" : "Film", current.duration.boundedDuration > 0 ? "\(Int(current.duration.boundedDuration / 60)) min" : nil, store.source(media.sourceID)?.name].compactMap { $0 }.joined(separator: " · ")).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.78)).lineLimit(2)
@@ -115,12 +115,12 @@ struct MediaDetailView: View {
             store.save()
         } catch { store.error = "Could not remove this subtitle file." }
     }
-    private func downloadIcon(_ item: Media, identifier: String = "Download") -> some View {
+    private func downloadIcon(_ item: Media, identifier: String = "Download", size: CGFloat = 52) -> some View {
         let state = store.state.transfers.first { $0.id == item.id }?.state
         return Button {
             if state == .ready { store.selectedTab = 3 } else { store.download(item) }
         } label: {
-            Group { if state == .downloading || state == .queued { ProgressView().tint(.white) } else { Image(systemName: state == .ready ? "checkmark.circle" : "arrow.down.to.line") } }.frame(width: 52, height: 52)
+            Group { if state == .downloading || state == .queued { ProgressView().tint(.white) } else { Image(systemName: state == .ready ? "checkmark.circle" : "arrow.down.to.line") } }.frame(width: size, height: size)
         }.disabled(store.preview || state == .downloading || state == .queued)
             .accessibilityLabel(state == .ready ? "Saved for offline, open Downloads" : state == .downloading || state == .queued ? "Downloading \(item.title)" : "Download \(item.title)")
             .accessibilityIdentifier(identifier)
@@ -145,7 +145,7 @@ struct MediaDetailView: View {
             }
             if !item.overview.isEmpty { Text(item.overview).font(.footnote).foregroundStyle(OxaTheme.secondary).lineLimit(3) }
             HStack(spacing: 4) {
-                downloadIcon(item, identifier: "download-\(item.providerID)").frame(width: 44, height: 44)
+                downloadIcon(item, identifier: "download-\(item.providerID)", size: 44)
                 Button { captionTarget = item; importingCaption = true } label: { Image(systemName: "captions.bubble").frame(width: 44, height: 44) }.accessibilityLabel("Import subtitles for \(item.title)").disabled(store.preview)
             }.font(.subheadline).foregroundStyle(OxaTheme.secondary)
         }
