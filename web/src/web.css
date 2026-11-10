@@ -15,7 +15,8 @@ body.web-app {
   display: none;
 }
 .web-app #content {
-  padding-top: 40px;
+  --content-top: 40px;
+  padding-top: var(--content-top);
   min-height: 100dvh;
 }
 .web-app button,
@@ -30,11 +31,11 @@ body.web-app {
   width: 100%;
   height: 100%;
 }
-.web-app .player-top {
-  top: max(16px, env(safe-area-inset-top));
+.web-app #player .player-top {
+  padding-top: max(40px, env(safe-area-inset-top));
 }
-.web-app .player-bottom {
-  bottom: max(20px, env(safe-area-inset-bottom));
+.web-app #player .player-bottom {
+  padding-bottom: max(30px, env(safe-area-inset-bottom));
 }
 .web-app #playback-error {
   width: min(500px, calc(100% - 32px));
@@ -149,8 +150,10 @@ body.web-app {
     background: #0008;
   }
   .web-app #content {
+    --content-top: 26px;
     margin-left: 0;
-    padding: 26px 20px calc(110px + env(safe-area-inset-bottom));
+    padding: var(--content-top) var(--gutter)
+      calc(110px + env(safe-area-inset-bottom));
   }
   .web-app .page-heading {
     flex-wrap: wrap;
@@ -176,8 +179,8 @@ body.web-app {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 22px 14px;
   }
-  .web-app .continue-card {
-    flex-basis: min(310px, calc(100vw - 60px));
+  .web-app .shelf-row > .continue-card {
+    width: min(300px, calc(100vw - 72px));
   }
   .web-app .channel {
     flex-wrap: wrap;
@@ -215,15 +218,12 @@ body.web-app {
     width: max-content;
     max-width: calc(100vw - 32px);
   }
-  .web-app .player-top {
-    inset-inline: 10px;
-    padding: 8px 10px;
-    gap: 8px;
+  .web-app #player .player-top {
+    padding: max(16px, env(safe-area-inset-top)) 14px 56px;
+    gap: 10px;
   }
-  .web-app .player-bottom {
-    inset-inline: 10px;
-    padding: 13px;
-    border-radius: 22px;
+  .web-app #player .player-bottom {
+    padding: 56px 14px max(18px, env(safe-area-inset-bottom));
   }
   .web-app .player-buttons {
     gap: 5px;
@@ -240,11 +240,13 @@ body.web-app {
 }
 
 @media (max-height: 500px) and (orientation: landscape) {
-  .web-app .player-top {
-    top: 10px;
+  .web-app #player .player-top {
+    padding-top: 12px;
+    padding-bottom: 40px;
   }
-  .web-app .player-bottom {
-    bottom: max(10px, env(safe-area-inset-bottom));
+  .web-app #player .player-bottom {
+    padding-top: 40px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
   .web-app .player-buttons {
     flex-wrap: nowrap;
