@@ -583,6 +583,10 @@ const actions = new Set([
   "metadata.search",
   "metadata.apply",
   "licenses",
+  "update.check",
+  "update.download",
+  "update.install",
+  "update.skip",
 ]);
 async function execute(action: string, args: any = {}) {
   if (
