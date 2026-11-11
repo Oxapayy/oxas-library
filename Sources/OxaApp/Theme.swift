@@ -302,7 +302,13 @@ struct HeroCard: View {
                         NavigationLink { MediaDetailView(media: media) } label: { Image(systemName: "info.circle").frame(width: 52, height: 52) }.accessibilityLabel("Details for \(media.displayTitle)")
                     }.font(.body.weight(.semibold)).foregroundStyle(.white).glassPill(Capsule())
                 }
-            }.padding(.horizontal, 20).padding(.top, topInset + 76).padding(.bottom, dots ? 48 : 8)
+            }
+            // Follows the text block, so large Dynamic Type sizes stay readable over bright art.
+            .background(alignment: .bottom) {
+                LinearGradient(stops: [.init(color: OxaTheme.ground.opacity(0), location: 0), .init(color: OxaTheme.ground.opacity(contrast == .increased ? 0.92 : 0.8), location: 0.35), .init(color: OxaTheme.ground.opacity(0.9), location: 1)], startPoint: .top, endPoint: .bottom)
+                    .padding(.horizontal, -20).padding(.top, -72).padding(.bottom, dots ? -48 : -8).accessibilityHidden(true)
+            }
+            .padding(.horizontal, 20).padding(.top, topInset + 76).padding(.bottom, dots ? 48 : 8)
         }
     }
 }
