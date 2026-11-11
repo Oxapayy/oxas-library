@@ -12,6 +12,8 @@ struct LibraryView: View {
     @State private var selectedSource: UUID?
     @State private var type = "All"
     @State private var sort = LibrarySort.standard
+    /// Sorted grid, computed once per sort/filter/catalog change instead of on every body pass.
+    @State private var sortedGrid: (key: String, items: [Media])?
     @State private var importing = false
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeSize = 32
     private var visible: [Media] {
@@ -34,6 +36,10 @@ struct LibraryView: View {
                 }.padding(.bottom, 28)
             }.ignoresSafeArea(edges: .top)
         }.background(OxaTheme.ground).toolbar(.hidden, for: .navigationBar).refreshable { store.startRefresh(force: true) }
+            .task(id: sortKey) {
+                guard sort != .standard, type != "All" else { sortedGrid = nil; return }
+                sortedGrid = (sortKey, sorted(visible))
+            }
     }
 
     @ViewBuilder private func library(top: CGFloat, width: CGFloat) -> some View {
@@ -85,7 +91,7 @@ struct LibraryView: View {
                 } label: { Label("Sort", systemImage: "arrow.up.arrow.down").font(.subheadline).frame(minHeight: 44) }.accessibilityLabel("Sort, \(sort.rawValue)")
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), alignment: .leading, spacing: 20) {
-                ForEach(sorted(visible)) { item in posterLink(item, shelf: "grid") }
+                ForEach(sort == .standard || sortedGrid?.key != sortKey ? visible : sortedGrid?.items ?? visible) { item in posterLink(item, shelf: "grid") }
             }.padding(.horizontal, 16)
         }
         if visible.isEmpty {
@@ -124,6 +130,9 @@ struct LibraryView: View {
         return slides
     }
 
+    private var sortKey: String {
+        "\(type)|\(sort.rawValue)|\(selectedSource?.uuidString ?? "")|\(store.state.catalogRevision)|\(store.libraryEpoch)|\(type == "Watchlist" ? store.state.favorites.count : 0)|\(sort == .recent ? store.state.progress.count : 0)"
+    }
     private func sorted(_ items: [Media]) -> [Media] {
         switch sort {
         case .standard: return items
@@ -356,6 +365,7 @@ struct SearchView: View {
             }.padding(.vertical, 16)
         }.background(OxaTheme.ground).navigationTitle("Search").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Films and series")
             .onChange(of: store.libraryEpoch) { results = []; channels = [] }
+            .onChange(of: searching) { results = []; channels = [] }
             .task(id: LocalSearchKey(query: query, revision: store.state.catalogRevision, epoch: store.libraryEpoch)) {
                 localBusy = true
                 do {

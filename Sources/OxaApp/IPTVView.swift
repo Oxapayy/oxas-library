@@ -25,7 +25,7 @@ struct IPTVView: View {
                 } else {
                     if query.isEmpty {
                         // Only channels in the selected group; capped so 400 channels stay cheap.
-                        let airing = Array(Shelves.onNow(selectedGroup == nil ? channels : channels.filter { $0.group == selectedGroup }, guide: { store.guide($0) }, favorites: store.state.favorites).prefix(20))
+                        let airing = Array(Shelves.onNow(channels.filter { (selectedGroup == nil || $0.group == selectedGroup) && (!favoritesOnly || store.state.favorites.contains($0.id)) }, guide: { store.guide($0) }, favorites: store.state.favorites).prefix(20))
                         if !airing.isEmpty { ShelfRow(title: "On Now") { ForEach(airing) { item in nowCard(item) } } }
                     }
                     if !groups.isEmpty {
