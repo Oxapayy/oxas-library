@@ -231,9 +231,8 @@ export function becauseYouWatched(
   limit = 40,
 ) {
   const h = history(items);
-  const seeds = [...h.recent.map((r) => r.item), ...h.watchlist].filter(
-    (m, i, all) => all.findIndex((x) => x.id === m.id) === i && index.has(m.id),
-  );
+  // Only titles actually played: the heading claims "Because You Watched".
+  const seeds = h.recent.map((r) => r.item).filter((m) => index.has(m.id));
   const out: { seed: any; items: any[] }[] = [];
   for (const seed of seeds) {
     if (out.length >= max) break;
