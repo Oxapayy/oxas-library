@@ -20,23 +20,37 @@ struct IPTVView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if channels.isEmpty {
-                    EmptyPanel(title: "No live channels yet", message: "Add an M3U playlist or Xtream Codes login to see your channels and their program guide here.", icon: "tv")
-                    PrimaryAction(title: "Add IPTV Source", icon: "plus") { store.showAddSource = true }
+                    EmptyPanel(title: "No live channels yet", message: "Add an M3U playlist or Xtream Codes login to see your channels and their program guide here.", icon: "tv").padding(.horizontal, 20)
+                    PrimaryAction(title: "Add IPTV Source", icon: "plus") { store.showAddSource = true }.padding(.horizontal, 20)
                 } else {
+                    if query.isEmpty {
+                        // Only channels in the selected group; capped so 400 channels stay cheap.
+                        let airing = Array(Shelves.onNow(selectedGroup == nil ? channels : channels.filter { $0.group == selectedGroup }, guide: { store.guide($0) }, favorites: store.state.favorites).prefix(20))
+                        if !airing.isEmpty { ShelfRow(title: "On Now") { ForEach(airing) { item in nowCard(item) } } }
+                    }
+                    if !groups.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: 2) {
+                                groupChip("All", active: selectedGroup == nil) { selectedGroup = nil }
+                                ForEach(groups, id: \.self) { group in groupChip(group, active: selectedGroup == group) { selectedGroup = group } }
+                            }.padding(4)
+                        }.glassPill(Capsule()).clipShape(Capsule()).padding(.horizontal, 20)
+                    }
                     HStack {
                         Button { favoritesOnly.toggle() } label: { Label(favoritesOnly ? "Favorites" : "All channels", systemImage: favoritesOnly ? "star.fill" : "star").font(.subheadline).frame(minHeight: 44) }
                         Spacer()
-                        if !groups.isEmpty { Menu { Button("All groups") { selectedGroup = nil }; ForEach(groups, id: \.self) { group in Button(group) { selectedGroup = group } } } label: { Label(selectedGroup ?? "All groups", systemImage: "line.3.horizontal.decrease").font(.subheadline).lineLimit(1) } }
-                    }
-                    Text("\(visible.count) channels").font(.subheadline).foregroundStyle(OxaTheme.secondary)
-                    if visible.isEmpty { Text("No channels match this search or filter.").foregroundStyle(OxaTheme.secondary) }
-                    LazyVStack(spacing: 12) { ForEach(visible) { channel in channelRow(channel) } }
-                    ForEach((store.state.websitePages ?? []).filter { $0.catalog.type == "live" && $0.cursor != nil }) { page in
-                        Button { Task { await store.loadWebsitePage(page) } } label: { Label("Load More Channels", systemImage: "arrow.down").frame(minHeight: 44) }.disabled(store.loadingWebsitePages.contains(page.id))
-                    }
-                    ForEach(store.sources.filter { ($0.kind.isTV || $0.kind == .website) && store.notices[$0.id] != nil }) { source in Text(store.notices[source.id] ?? "").font(.subheadline).foregroundStyle(OxaTheme.secondary) }
+                        Text("\(visible.count) channels").font(.subheadline).foregroundStyle(OxaTheme.secondary)
+                    }.padding(.horizontal, 20)
+                    Group {
+                        if visible.isEmpty { Text("No channels match this search or filter.").foregroundStyle(OxaTheme.secondary) }
+                        LazyVStack(spacing: 12) { ForEach(visible) { channel in channelRow(channel) } }
+                        ForEach((store.state.websitePages ?? []).filter { $0.catalog.type == "live" && $0.cursor != nil }) { page in
+                            Button { Task { await store.loadWebsitePage(page) } } label: { Label("Load More Channels", systemImage: "arrow.down").frame(minHeight: 44) }.disabled(store.loadingWebsitePages.contains(page.id))
+                        }
+                        ForEach(store.sources.filter { ($0.kind.isTV || $0.kind == .website) && store.notices[$0.id] != nil }) { source in Text(store.notices[source.id] ?? "").font(.subheadline).foregroundStyle(OxaTheme.secondary) }
+                    }.padding(.horizontal, 20)
                 }
-            }.padding(20)
+            }.padding(.vertical, 20)
         }.background(OxaTheme.ground).navigationTitle("Live TV").navigationBarTitleDisplayMode(.inline)
             .modifier(ChannelSearch(query: $query, enabled: !channels.isEmpty))
             .toolbar { if !channels.isEmpty { ToolbarItem(placement: .topBarTrailing) { Button { store.showAddSource = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add IPTV source") } } }
@@ -60,11 +74,38 @@ struct IPTVView: View {
             }
             if let now {
                 let fraction = min(1, max(0, Date.now.timeIntervalSince(now.start) / now.end.timeIntervalSince(now.start)))
-                ProgressView(value: fraction).tint(OxaTheme.accent)
+                ProgressLine(fraction: fraction)
                 HStack { Text(now.start, style: .time); Spacer(); Text(now.end, style: .time) }.font(.caption).foregroundStyle(OxaTheme.secondary)
             }
             Button { guideChannel = channel } label: { Label("Program Guide", systemImage: "list.bullet").font(.subheadline).frame(minHeight: 44) }
-        }.padding(16).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+        }.padding(16).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: OxaTheme.radiusCard))
+    }
+    private func groupChip(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) { ChipLabel(title: title, active: active) }.buttonStyle(PressStyle()).accessibilityAddTraits(active ? .isSelected : [])
+    }
+    private func nowCard(_ item: Shelves.Airing) -> some View {
+        let channel = item.channel, program = item.program
+        let span = program.end.timeIntervalSince(program.start)
+        let fraction = span > 0 ? min(1, max(0, Date.now.timeIntervalSince(program.start) / span)) : 0
+        let favorite = store.state.favorites.contains(channel.id)
+        return Button { Task { await store.play(channel) } } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    if let poster = channel.poster { SafeArtwork(url: poster, sourceID: channel.sourceID, mode: .fit, pixelSize: 132).frame(width: 40, height: 40) }
+                    else { Image(systemName: "tv").font(.title3).frame(width: 40, height: 40).foregroundStyle(OxaTheme.secondary) }
+                    Text(channel.title).font(.subheadline.weight(.semibold)).foregroundStyle(OxaTheme.secondary).lineLimit(1)
+                }
+                Text(program.title).font(.headline).foregroundStyle(.white).lineLimit(2).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+                ProgressLine(fraction: fraction)
+                if let next = item.next { (Text("Next · ") + Text(next.start, style: .time) + Text(" \(next.title)")).font(.caption).foregroundStyle(OxaTheme.secondary).lineLimit(1) }
+            }.padding(14).frame(width: 260, alignment: .leading).frame(minHeight: 150).background(OxaTheme.surface, in: RoundedRectangle(cornerRadius: OxaTheme.radiusCard)).contentShape(RoundedRectangle(cornerRadius: OxaTheme.radiusCard))
+        }.buttonStyle(PressStyle())
+            .accessibilityElement(children: .combine).accessibilityLabel("\(channel.title), now: \(program.title)").accessibilityIdentifier("now-channel-\(channel.providerID)")
+            .contextMenu {
+                Button { Task { await store.play(channel) } } label: { Label("Watch Live", systemImage: "play.fill") }
+                Button { store.toggleFavorite(channel) } label: { Label(favorite ? "Remove from Favorites" : "Add to Favorites", systemImage: favorite ? "star.slash" : "star") }
+            }
     }
     private func guide(_ channel: Media) -> some View {
         NavigationStack {

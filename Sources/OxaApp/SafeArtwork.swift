@@ -13,7 +13,8 @@ struct SafeArtwork: View {
         let source = sourceID.flatMap { store.source($0) }
         let local = source.map { URLPolicy.isLocal($0.host) } ?? false
         let request = ArtworkRequest(url: url, allowHTTP: local && source?.allowHTTP == true, publicOnly: !local, pixelSize: pixelSize)
-        Group { if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: mode) } else { Color.clear } }
+        Group { if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: mode).transition(.opacity) } else { Color.clear } }
+            .animation(.easeOut(duration: 0.22), value: image == nil)
             .task(id: request) {
                 image = nil
                 do {
