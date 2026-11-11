@@ -216,6 +216,8 @@ struct PlaybackScreen: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
     let playback: Playback
     @State private var session: PlayerSession?
     @State private var retrying = false
@@ -228,8 +230,14 @@ struct PlaybackScreen: View {
             if let session {
                 ZStack {
                     Color.black
-                    NativePlayer(session: session, fill: fill).ignoresSafeArea().onTapGesture { withAnimation(.easeOut(duration: 0.15)) { controls.toggle() } }.accessibilityIdentifier("video-surface")
+                    NativePlayer(session: session, fill: fill).ignoresSafeArea().onTapGesture { withAnimation(OxaTheme.motion(reduceMotion, duration: 0.15)) { controls.toggle() } }.accessibilityIdentifier("video-surface")
                     if controls {
+                        // Soft scrims keep the chrome readable over bright video; taps pass through to the surface.
+                        VStack(spacing: 0) {
+                            LinearGradient(stops: [.init(color: .black.opacity(contrast == .increased ? 0.92 : 0.78), location: 0), .init(color: .black.opacity(contrast == .increased ? 0.85 : 0.66), location: 0.6), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom).frame(height: max(geometry.safeAreaInsets.top, 8) + 120)
+                            Spacer(minLength: 0)
+                            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(contrast == .increased ? 0.88 : 0.7), location: 0.35), .init(color: .black.opacity(contrast == .increased ? 0.94 : 0.82), location: 1)], startPoint: .top, endPoint: .bottom).frame(height: max(geometry.safeAreaInsets.bottom, 8) + 220)
+                        }.allowsHitTesting(false).accessibilityHidden(true)
                         VStack(spacing: 12) {
                             HStack(spacing: 12) {
                                 Button { session.close(); dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("Close player")
@@ -237,12 +245,12 @@ struct PlaybackScreen: View {
                                 Spacer(minLength: 0)
                                 AirPlayRoute().frame(width: 44, height: 44).accessibilityLabel("AirPlay")
                                 Button { fill.toggle() } label: { Image(systemName: fill ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right").frame(width: 44, height: 44) }.accessibilityLabel(fill ? "Fit video" : "Fill screen")
-                            }.padding(.horizontal, 8).background(.black.opacity(0.65))
+                            }.padding(.horizontal, 8).contentShape(Rectangle())
                             Spacer(minLength: 0)
                             if session.failure == nil {
                                 HStack(spacing: 36) {
                                     Button { session.skip(-10) } label: { Image(systemName: "gobackward.10").font(.title).frame(width: 48, height: 48) }.accessibilityLabel("Back 10 seconds")
-                                    Button { session.togglePlayback() } label: { Image(systemName: session.isPlaying ? "pause.fill" : "play.fill").font(.largeTitle).frame(width: 64, height: 64).background(.black.opacity(0.55), in: Circle()) }.accessibilityLabel(session.isPlaying ? "Pause" : "Play video")
+                                    Button { session.togglePlayback() } label: { Image(systemName: session.isPlaying ? "pause.fill" : "play.fill").font(.largeTitle).frame(width: 64, height: 64).glassPill(Circle()) }.accessibilityLabel(session.isPlaying ? "Pause" : "Play video")
                                     Button { session.skip(10) } label: { Image(systemName: "goforward.10").font(.title).frame(width: 48, height: 48) }.accessibilityLabel("Forward 10 seconds")
                                 }
                             }
@@ -265,7 +273,7 @@ struct PlaybackScreen: View {
                                     Spacer(minLength: 0)
                                     if session.hasNextEpisode { Button { Task { await session.playNext() } } label: { Label(session.switchingEpisode ? "Loading…" : "Next episode", systemImage: "forward.end.fill") }.disabled(session.switchingEpisode).accessibilityIdentifier("next-episode") }
                                 }.font(.subheadline.weight(.medium))
-                            }.padding(.horizontal, 20).background(.black.opacity(0.65))
+                            }.padding(.horizontal, 20).contentShape(Rectangle())
                         }.padding(.top, max(geometry.safeAreaInsets.top, 8)).padding(.bottom, max(geometry.safeAreaInsets.bottom, 8))
                     }
                     if !session.subtitle.isEmpty { VStack { Spacer(); Text(session.subtitle).font(.system(size: 19, weight: .medium)).multilineTextAlignment(.center).padding(8).background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 5)).padding(.bottom, controls ? 150 : 36).accessibilityIdentifier("playback-caption") }.padding(.horizontal, 24) }

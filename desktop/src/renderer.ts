@@ -1,5 +1,15 @@
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
+import {
+  SimilarityIndex,
+  becauseYouWatched,
+  moreLikeThis,
+  onNow,
+  picks,
+  readyOffline,
+  seedSignature,
+  watchAgain,
+} from "./shelves";
 mpegts.LoggingControl.enableAll = false;
 declare global {
   interface Window {
@@ -63,7 +73,10 @@ let state: any = {
   searchRows: any[] = [],
   searchEpoch = 0,
   detailData: any = null,
-  seasonNumber = 1;
+  seasonNumber = 1,
+  sortOrder = "default",
+  heroIndex = 0,
+  heroKey = "";
 let toastTimer: any,
   busy = false,
   playback: any = null,
@@ -198,8 +211,32 @@ function render() {
   if (html !== lastContentHTML) {
     content.innerHTML = html;
     lastContentHTML = html;
+    applyHero();
+    markLoaded(content);
   }
 }
+// Artwork fades in once it has decoded; a skeleton holds its place until then.
+function markLoaded(root: Element) {
+  root.querySelectorAll("img:not(.loaded):not(.failed)").forEach((img: any) => {
+    if (img.complete) img.classList.add(img.naturalWidth ? "loaded" : "failed");
+  });
+}
+document.addEventListener(
+  "load",
+  (e) => {
+    const t = e.target as HTMLElement;
+    if (t?.tagName === "IMG") t.classList.add("loaded");
+  },
+  true,
+);
+document.addEventListener(
+  "error",
+  (e) => {
+    const t = e.target as HTMLElement;
+    if (t?.tagName === "IMG") t.classList.add("failed");
+  },
+  true,
+);
 function updateBanner() {
   const u = state.update;
   if (!u || u.state === "none") return "";
@@ -220,6 +257,8 @@ const svg: any = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.6v.4"/>',
+  prev: '<path d="m15 5-7 7 7 7"/>',
+  next: '<path d="m9 5 7 7-7 7"/>',
 };
 const iconButton = (icon: string, action: string, args: any, label: string) =>
   `<button type="button" class="icon-button" data-action="${esc(action)}" data-args="${esc(JSON.stringify(args))}" aria-label="${esc(label)}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg[icon]}</svg></button>`;
@@ -230,28 +269,163 @@ const seriesOf = (m: any) =>
 const resuming = (m: any) => m?.progress?.seconds > 0 && !m.progress.completed;
 const progressBar = (m: any) =>
   `<progress max="${esc(m.progress.duration || 1)}" value="${esc(m.progress.seconds)}" aria-label="Watch progress"></progress>`;
-function continueCard(m: any, fresh = false) {
-  return `<button class="continue-card" data-action="play" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.backdrop || m.poster) || '<div class="still"></div>'}<div class="copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small>${fresh ? "<span>New episode</span>" : `${progressBar(m)}<small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} left</small>`}</div></button>`;
+const reduceMotion = () =>
+  matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Missing artwork becomes a quiet tone picked from the title, with the title on it.
+function tone(text: string) {
+  let h = 0;
+  for (const c of String(text)) h = (h * 31 + c.charCodeAt(0)) | 0;
+  return Math.abs(h) % 8;
 }
-// The large card at the top of the library: what you were watching, or a title to start.
-function hero(m: any, continuing: boolean) {
+function art(m: any, wide = false, cls = "") {
+  const name = m.seriesTitle || m.title;
+  return (
+    image(wide ? m.backdrop || m.poster : m.poster || m.backdrop, "", cls) ||
+    `<span class="fallback tone-${tone(name)}">${esc(name)}</span>`
+  );
+}
+const minutes = (m: any) =>
+  m.duration >= 60 ? `${Math.round(m.duration / 60)} min` : "";
+function continueCard(m: any, fresh = false) {
+  return `<button class="continue-card" data-action="play" data-id="${esc(m.id)}" data-args="${esc(JSON.stringify({ id: m.id }))}"><span class="cover art">${art(m, true)}${fresh || !m.progress ? "" : progressBar(m)}</span><span class="copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small>${fresh ? '<span class="flag">New episode</span>' : m.progress ? `<small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} left</small>` : ""}</span></button>`;
+}
+// One slide of the hero stage. The active slide is set after rendering (applyHero),
+// so rotating it never rebuilds the page or resets the shelves' scroll positions.
+function heroSlide(m: any, kicker: string, index: number) {
   const listed = seriesOf(m) || m,
     name = m.seriesTitle || m.title,
-    going = resuming(m);
-  return `${continuing ? "<h2>Continue Watching</h2>" : ""}<section class="hero" aria-label="${esc(name)}"><div class="hero-art" aria-hidden="true">${image(m.backdrop || m.poster)}</div><div class="hero-copy"><h3>${esc(name)}</h3><p>${esc(episodeLabel(m))}</p>${going ? `${progressBar(m)}<small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} left</small>` : ""}<div class="hero-actions">${button(going ? "Resume" : "Play", "play", { id: m.id }, true)}<span class="glass-pill">${iconButton(listed.favorite ? "check" : "plus", "favorite", { id: listed.id }, listed.favorite ? `Remove ${listed.title} from watchlist` : `Add ${listed.title} to watchlist`)}${iconButton("info", "detail", { id: listed.id }, `Details for ${listed.title}`)}</span></div></div></section>`;
+    going = resuming(m),
+    meta = [episodeLabel(m), minutes(m)].filter(Boolean).join(" · ");
+  return `<section class="hero-slide" data-slide="${index}" data-id="${esc(m.id)}" aria-label="${esc(name)}"><div class="hero-art" aria-hidden="true">${art(m, true)}</div><div class="hero-copy">${kicker ? `<h2 class="hero-kicker">${esc(kicker)}</h2>` : ""}<h3 class="hero-title">${esc(name)}</h3><p class="hero-meta">${esc(meta)}</p>${listed.overview || m.overview ? `<p class="hero-overview">${esc(m.overview || listed.overview)}</p>` : ""}${going ? `${progressBar(m)}<small>${time(m.progress.seconds)} · ${time(Math.max(0, m.progress.duration - m.progress.seconds))} left</small>` : ""}<div class="hero-actions">${button(going ? "Resume" : "Play", "play", { id: m.id }, true)}<span class="glass-pill">${iconButton(listed.favorite ? "check" : "plus", "favorite", { id: listed.id }, listed.favorite ? `Remove ${listed.title} from watchlist` : `Add ${listed.title} to watchlist`)}${iconButton("info", "detail", { id: listed.id }, `Details for ${listed.title}`)}</span></div></div></section>`;
 }
+function heroStage(slides: { m: any; kicker: string }[], bar: string) {
+  const key = slides.map((x) => x.m.id).join(",");
+  if (key !== heroKey) {
+    heroKey = key;
+    heroIndex = 0;
+  }
+  return `<div class="hero-stage">${slides.map((x, i) => heroSlide(x.m, x.kicker, i)).join("")}${bar}${slides.length > 1 ? `<div class="hero-dots" role="group" aria-label="Featured titles">${slides.map((x, i) => `<button type="button" data-hero-slide="${i}" aria-label="${esc(`Show ${x.m.seriesTitle || x.m.title}`)}"></button>`).join("")}</div>` : ""}</div>`;
+}
+function applyHero() {
+  const slides = document.querySelectorAll(".hero-slide");
+  if (!slides.length) return;
+  if (heroIndex >= slides.length) heroIndex = 0;
+  slides.forEach((el, i) => {
+    el.classList.toggle("active", i === heroIndex);
+    if (i === heroIndex) el.removeAttribute("aria-hidden");
+    else el.setAttribute("aria-hidden", "true");
+  });
+  document
+    .querySelectorAll(".hero-dots button")
+    .forEach((el, i) =>
+      el.setAttribute("aria-current", String(i === heroIndex)),
+    );
+}
+setInterval(() => {
+  const stage = document.querySelector(".hero-stage");
+  if (
+    !stage ||
+    reduceMotion() ||
+    document.hidden ||
+    stage.matches(":hover, :focus-within")
+  )
+    return;
+  const count = stage.querySelectorAll(".hero-slide").length;
+  if (count < 2) return;
+  heroIndex = (heroIndex + 1) % count;
+  applyHero();
+}, 9000);
 function shelf(
   title: string,
   items: any[],
   card: (m: any) => string,
   all = "",
+  note = "",
 ) {
   if (!items.length) return "";
-  return `<section class="shelf" aria-label="${esc(title)}"><div class="section-heading"><h2>${esc(title)}</h2>${all && items.length > 12 ? `<button type="button" class="quiet" data-filter="${esc(all)}">See all ${items.length}</button>` : `<span class="muted">${items.length}</span>`}</div><div class="shelf-row">${items.slice(0, 40).map(card).join("")}</div></section>`;
+  return `<section class="shelf" aria-label="${esc(title)}"><div class="shelf-head"><h2>${esc(title)}</h2>${all && items.length > 12 ? `<button type="button" class="quiet" data-filter="${esc(all)}">See all ${items.length}</button>` : `<span class="muted">${items.length}</span>`}</div>${note ? `<p class="shelf-note">${esc(note)}</p>` : ""}<button type="button" class="shelf-arrow prev" data-shelf-dir="-1" aria-label="${esc(`Scroll ${title} back`)}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg.prev}</svg></button><button type="button" class="shelf-arrow next" data-shelf-dir="1" aria-label="${esc(`Scroll ${title} forward`)}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg.next}</svg></button><div class="shelf-row">${items.slice(0, 40).map(card).join("")}</div></section>`;
 }
 function poster(m: any) {
-  return `<button class="poster" data-action="detail" data-args="${esc(JSON.stringify({ id: m.id }))}"><span class="cover">${image(m.poster || m.backdrop) || "▷"}</span><strong>${esc(m.title)}</strong><small>${esc(episodeLabel(m))}</small></button>`;
+  return `<button class="poster" data-action="detail" data-id="${esc(m.id)}" data-args="${esc(JSON.stringify({ id: m.id }))}"><span class="cover">${art(m)}</span><strong>${esc(m.title)}</strong><small>${esc(episodeLabel(m))}</small></button>`;
 }
+// Derived shelves stay off the render path: the similarity index is built in idle
+// steps and results are cached until the catalog, a seed or the watchlist changes.
+let derivedIndex: SimilarityIndex | undefined,
+  derivedCatalog = "",
+  derivedBuilder: ReturnType<typeof SimilarityIndex.builder> | undefined,
+  derivedCache: { key: string; value: any } = { key: "", value: null };
+const idle = (fn: () => void) =>
+  "requestIdleCallback" in window
+    ? (window as any).requestIdleCallback(fn, { timeout: 600 })
+    : setTimeout(fn, 16);
+function similarity() {
+  const m = state.media,
+    n = m.length,
+    key = `${n}:${m[0]?.id}:${m[n >> 1]?.id}:${m[n - 1]?.id}`;
+  if (key !== derivedCatalog) {
+    derivedCatalog = key;
+    derivedIndex = undefined;
+    const builder = (derivedBuilder = SimilarityIndex.builder(m));
+    const step = () => {
+      if (derivedBuilder !== builder) return;
+      const done = builder.step(8);
+      if (!done) return void idle(step);
+      derivedIndex = done;
+      derivedBuilder = undefined;
+      render();
+      if (detailData && $("#sheet").open) drawDetail();
+    };
+    idle(step);
+  }
+  return derivedIndex;
+}
+function derived() {
+  const index = similarity(),
+    key = `${derivedCatalog}|${index ? 1 : 0}|${seedSignature(state.media)}`;
+  if (derivedCache.key !== key)
+    derivedCache = {
+      key,
+      value: {
+        watchAgain: watchAgain(state.media),
+        because: index ? becauseYouWatched(index, state.media) : [],
+        picks: index ? picks(index, state.media) : [],
+      },
+    };
+  return derivedCache.value;
+}
+function sorted(rows: any[]) {
+  if (sortOrder === "az")
+    return [...rows].sort((a, b) => String(a.title).localeCompare(b.title));
+  if (sortOrder === "new")
+    return [...rows].sort((a, b) => (b.year || 0) - (a.year || 0));
+  if (sortOrder === "old")
+    return [...rows].sort((a, b) => (a.year || 9999) - (b.year || 9999));
+  if (sortOrder === "recent") {
+    const latest = new Map<string, number>();
+    for (const m of state.media) {
+      const at = m.progress?.playedAt || 0,
+        id = m.kind === "episode" ? m.seriesID : m.id;
+      if (at > (latest.get(id) || 0)) latest.set(id, at);
+    }
+    return [...rows].sort(
+      (a, b) => (latest.get(b.id) || 0) - (latest.get(a.id) || 0),
+    );
+  }
+  return rows;
+}
+const sortMenu = () =>
+  `<label class="sort">Sort<select id="sort" aria-label="Sort">${[
+    ["default", "Default"],
+    ["recent", "Recently Watched"],
+    ["az", "A–Z"],
+    ["new", "Year (newest)"],
+    ["old", "Year (oldest)"],
+  ]
+    .map(
+      ([v, l]) =>
+        `<option value="${v}" ${sortOrder === v ? "selected" : ""}>${l}</option>`,
+    )
+    .join("")}</select></label>`;
 function library() {
   let rows = state.media.filter(
     (m: any) => m.kind === "movie" || m.kind === "series",
@@ -286,8 +460,20 @@ function library() {
   const watching = continued.filter(
       (m: any) => !source || m.sourceID === source,
     ),
-    featured = filter === "All" ? watching[0] || rows[0] : rows[0],
-    refreshing = state.sources.some((s: any) => s.refreshing);
+    refreshing = state.sources.some((s: any) => s.refreshing),
+    d = filter === "All" ? derived() : null,
+    mine = (list: any[]) =>
+      list.filter((m: any) => !source || m.sourceID === source);
+  const slides: { m: any; kicker: string }[] = [];
+  if (filter === "All") {
+    if (watching[0])
+      slides.push({ m: watching[0], kicker: "Continue Watching" });
+    if (newEpisodes[0])
+      slides.push({ m: newEpisodes[0], kicker: "New Episode" });
+    for (const m of mine(d.picks).slice(0, 2))
+      slides.push({ m, kicker: "Picked for You" });
+    if (!slides.length && rows[0]) slides.push({ m: rows[0], kicker: "" });
+  } else if (rows[0]) slides.push({ m: rows[0], kicker: "" });
   const bar = state.sources.length
     ? `<div class="library-bar"><div class="category-bar" role="group" aria-label="Show">${["All", "Movies", "Series", "Watchlist"].map((x) => `<button type="button" data-filter="${x}" aria-pressed="${filter === x}">${x}</button>`).join("")}<button type="button" data-page="Live TV">Live TV</button></div>${iconButton("plus", "source.form", {}, "Add source")}<span class="spacer"></span>${state.sources.length > 1 ? `<select id="source-filter" aria-label="Source"><option value="">All sources</option>${state.sources.map((s: any) => `<option value="${esc(s.id)}" ${s.id === source ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select>` : ""}${button("Refresh", "refresh")}</div>`
     : "";
@@ -305,7 +491,7 @@ function library() {
             button("Import huhu.to", "source.huhu", {}, true) +
               button("Connect Your Own Server", "source.form"),
           )
-        : !featured
+        : !slides.length
           ? filter === "Watchlist"
             ? blank(
                 "Your watchlist is empty.",
@@ -318,12 +504,34 @@ function library() {
                   : "Refresh your source or check its connection in Settings.",
               )
           : "";
-  const body =
-    empty ||
-    hero(featured, featured === watching[0]) +
+  const body = empty
+    ? bar + empty
+    : heroStage(slides, bar) +
       (filter === "All"
         ? shelf("Also watching", watching.slice(1), (m) => continueCard(m)) +
           shelf("New Episodes", newEpisodes, (m) => continueCard(m, true)) +
+          shelf(
+            "Picks for You",
+            mine(d.picks),
+            poster,
+            "",
+            "Based on titles you watched or saved",
+          ) +
+          d.because
+            .map((b: any) =>
+              shelf(
+                `Because You Watched ${b.seed.title}`,
+                mine(b.items),
+                poster,
+                "",
+                `Similar to ${b.seed.title}`,
+              ),
+            )
+            .join("") +
+          shelf("Watch Again", mine(d.watchAgain), poster) +
+          (downloadsEnabled
+            ? shelf("Ready Offline", readyOffline(state.transfers), poster)
+            : "") +
           shelf(
             "Watchlist",
             rows.filter((m: any) => m.favorite),
@@ -343,10 +551,9 @@ function library() {
             "Series",
           ) +
           `<div class="section-heading">${button("Load more from sources", "more")}</div>`
-        : `<div class="section-heading"><h2>${esc(filter)}</h2><span class="muted">${rows.length}</span></div><div class="grid">${rows.slice(0, visibleCount("library")).map(poster).join("")}</div><div class="section-heading">${showMore("library", rows.length)}${button("Load more from sources", "more")}</div>`);
+        : `<div class="section-heading"><h2>${esc(filter)}</h2><span class="spacer"></span>${sortMenu()}<span class="muted">${rows.length}</span></div><div class="grid">${sorted(rows).slice(0, visibleCount("library")).map(poster).join("")}</div><div class="section-heading">${showMore("library", rows.length)}${button("Load more from sources", "more")}</div>`);
   return (
     '<h1 class="sr-only">Library</h1>' +
-    bar +
     body +
     state.sources
       .filter((s: any) => s.error)
@@ -354,36 +561,82 @@ function library() {
       .join("")
   );
 }
+const shortcut = () =>
+  (
+    webMode
+      ? /Mac|iPhone|iPad/.test(navigator.platform)
+      : state.platform === "darwin"
+  )
+    ? "⌘K"
+    : "Ctrl K";
+function searchRow(m: any) {
+  return `<button class="row" data-action="detail" data-id="${esc(m.id)}" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.poster || m.backdrop)}<span class="text"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small></span><span aria-hidden="true">›</span></button>`;
+}
 function search() {
   const q = query.toLocaleLowerCase(),
+    match = (m: any) =>
+      !q || `${m.title} ${m.seriesTitle || ""}`.toLocaleLowerCase().includes(q),
     local = state.media.filter(
-      (m: any) =>
-        ["movie", "series"].includes(m.kind) &&
-        (!q ||
-          `${m.title} ${m.seriesTitle || ""}`.toLocaleLowerCase().includes(q)),
+      (m: any) => ["movie", "series"].includes(m.kind) && match(m),
     ),
     localIDs = new Set(local.map((m: any) => m.id)),
-    rows = [
+    rows = sorted([
       ...local,
       ...searchRows.filter(
         (m) => ["movie", "series"].includes(m.kind) && !localIDs.has(m.id),
       ),
-    ];
+    ]),
+    toolbar = `<div class="toolbar"><input class="search-input" id="search-query" type="search" placeholder="Films and series" aria-label="Search your library" value="${esc(query)}">${button("Search", "search.run")}${rows.length ? sortMenu() : ""}</div><p class="search-hint">Press <kbd>/</kbd> or <kbd>${shortcut()}</kbd> to search from anywhere.</p>`;
+  if (!q) {
+    // An empty search suggests what to watch instead of listing the whole catalog.
+    const d = derived(),
+      watching = state.media
+        .filter((m: any) => m.kind !== "channel" && resuming(m))
+        .sort((a: any, b: any) => b.progress.playedAt - a.progress.playedAt)
+        .slice(0, 12);
+    return (
+      heading("Search") +
+      toolbar +
+      shelf("Continue Watching", watching, (m) => continueCard(m)) +
+      shelf(
+        "Picks for You",
+        d.picks,
+        poster,
+        "",
+        "Based on titles you watched or saved",
+      ) +
+      (rows.length
+        ? `<div class="search-group"><h2>In Your Library</h2><span class="muted">${Math.min(24, rows.length)} of ${rows.length}</span></div><div class="search-results">${rows.slice(0, 24).map(searchRow).join("")}</div>`
+        : blank(
+            "Nothing to search yet.",
+            "Connect a source to search your films and series here.",
+          ))
+    );
+  }
+  const movies = rows.filter((m: any) => m.kind === "movie"),
+    series = rows.filter((m: any) => m.kind === "series"),
+    channels = state.media.filter((m: any) => m.kind === "channel" && match(m)),
+    group = (title: string, list: any[], key: string) =>
+      list.length
+        ? `<div class="search-group"><h2>${title}</h2><span class="muted">${list.length}</span></div>${list.slice(0, visibleCount(key)).map(searchRow).join("")}${showMore(key, list.length)}`
+        : "";
   return (
     heading("Search") +
-    `<div class="toolbar"><input class="search-input" id="search-query" type="search" placeholder="Films and series" aria-label="Search your library" value="${esc(query)}">${button("Search", "search.run")}</div><div class="search-results">${rows
-      .slice(0, visibleCount("search"))
-      .map(
-        (m: any) =>
-          `<button class="row" data-action="detail" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.poster || m.backdrop)}<span class="text"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc(episodeLabel(m))}</small></span><span>›</span></button>`,
-      )
-      .join("")}</div>${showMore("search", rows.length)}` +
-    (!rows.length
+    toolbar +
+    `<div class="search-results">${group("Movies", movies, "search")}${group("Series", series, "search-series")}</div>` +
+    (channels.length
+      ? `<div class="search-channels"><div class="search-group"><h2>Channels</h2><span class="muted">${channels.length}</span></div>${channels
+          .slice(0, 24)
+          .map(
+            (m: any) =>
+              `<button class="row" data-action="play" data-id="${esc(m.id)}" data-args="${esc(JSON.stringify({ id: m.id }))}">${image(m.poster)}<span class="text"><strong>${esc(m.title)}</strong><small>${esc(m.group || "Live TV")}</small></span><span aria-hidden="true">▶</span></button>`,
+          )
+          .join("")}</div>`
+      : "") +
+    (!rows.length && !channels.length
       ? blank(
-          q ? "No matching titles." : "Nothing to search yet.",
-          q
-            ? "Try a different title or refresh your sources."
-            : "Connect a source to search your films and series here.",
+          "No matching titles.",
+          "Try a different title or refresh your sources.",
         )
       : "")
   );
@@ -409,7 +662,24 @@ function iptv() {
             p.title.toLowerCase().includes(query.toLowerCase()),
           ),
     );
-  const now = Date.now() / 1000 - 978307200;
+  const now = Date.now() / 1000 - 978307200,
+    airing = onNow(
+      state.media.filter((m: any) => m.kind === "channel"),
+      state.programs,
+      now,
+    ),
+    clock = (t: number) =>
+      new Date((t + 978307200) * 1000).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      }),
+    nowCard = (r: any) => {
+      const body = `<span class="station-row">${image(r.channel.poster) || '<span class="station" aria-hidden="true">▱</span>'}<strong>${esc(r.channel.title)}</strong></span><span class="now-title">${esc(r.program.title)}</span><progress max="${r.program.end - r.program.start}" value="${now - r.program.start}" aria-label="Programme progress"></progress><small>${r.next ? `Next ${esc(clock(r.next.start))} · ${esc(r.next.title)}` : `Until ${esc(clock(r.program.end))}`}</small>`;
+      const live = livePlay(r.channel);
+      return live.startsWith("<a")
+        ? `<a class="now-card" href="https://huhu.to/#/channels" target="_blank" rel="noopener noreferrer">${body}</a>`
+        : `<button class="now-card" data-action="play" data-args="${esc(JSON.stringify({ id: r.channel.id }))}">${body}</button>`;
+    };
   return (
     heading(
       "Live TV",
@@ -433,7 +703,17 @@ function iptv() {
             true,
           ),
         )
-      : `<div class="toolbar">${button(starred ? "★ Favorites" : "☆ All channels", "channels.favorites")}<input id="channel-query" type="search" aria-label="Search channels" placeholder="Find a channel" value="${esc(query)}"><select id="channel-group" aria-label="Channel group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}" ${group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select></div><p>${rows.length} channels</p><div class="channel-list">${rows
+      : shelf("On Now", airing, nowCard) +
+        (groups.length > 1
+          ? `<div class="chips" role="group" aria-label="Channel groups"><button type="button" data-group="" aria-pressed="${!group}">All</button>${groups
+              .slice(0, 24)
+              .map(
+                (g) =>
+                  `<button type="button" data-group="${esc(g)}" aria-pressed="${group === g}">${esc(g)}</button>`,
+              )
+              .join("")}</div>`
+          : "") +
+        `<div class="toolbar">${button(starred ? "★ Favorites" : "☆ All channels", "channels.favorites")}<input id="channel-query" type="search" aria-label="Search channels" placeholder="Find a channel" value="${esc(query)}"><select id="channel-group" aria-label="Channel group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}" ${group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select></div><p>${rows.length} channels</p><div class="channel-list">${rows
           .slice(0, visibleCount("channels"))
           .map((m: any) => {
             const p = channelPrograms
@@ -507,6 +787,7 @@ function sheet(title: string, html: string, cls = "") {
   const d = $("#sheet");
   d.className = cls;
   d.innerHTML = `<header><h2>${esc(title)}</h2><button data-action="sheet.close" aria-label="Close">×</button></header>${html}`;
+  markLoaded(d);
   if (!d.open) d.showModal();
 }
 async function openDetail(id: string) {
@@ -562,27 +843,31 @@ function drawDetail() {
         : m.kind === "episode"
           ? `S${m.season || 1} · E${m.episode || 1} · ${m.title}`
           : "Movie",
-      m.duration >= 60 ? `${Math.round(m.duration / 60)} min` : "",
+      minutes(m),
       state.sources.find((s: any) => s.id === m.sourceID)?.name,
     ]
       .filter(Boolean)
       .join(" · ");
   sheet(
     m.kind === "series" ? "Series" : "Details",
-    `<div class="detail-hero"><div class="detail-art-wrap" aria-hidden="true">${image(m.backdrop || m.poster, "", "detail-art")}</div><div class="detail-title"><h1>${esc(m.seriesTitle || m.title)}</h1><p>${esc(meta)}</p></div></div><div class="detail-body"><div class="detail-actions">${target ? button(going ? `Resume at ${time(target.progress.seconds)}` : "Play", "play", { id: target.id }, true) : ""}<span class="glass-pill">${button(listed.favorite ? "✓ In Watchlist" : "+ Watchlist", "favorite", { id: listed.id })}${m.kind !== "series" && downloadsEnabled ? button("Download", "download", { id: m.id }) : ""}</span>${["movie", "series"].includes(m.kind) && state.preferences.externalMetadata ? button("Find Artwork", "metadata.search", { id: m.id }) : ""}</div>${
+    `<div class="detail-hero"><div class="detail-art-wrap" aria-hidden="true">${art(m, true, "detail-art")}</div><div class="detail-title"><h1>${esc(m.seriesTitle || m.title)}</h1><p>${esc(meta)}</p></div></div><div class="detail-body"><div class="detail-actions">${target ? button(going ? `Resume at ${time(target.progress.seconds)}` : "Play", "play", { id: target.id }, true) : ""}<span class="glass-pill">${button(listed.favorite ? "✓ In Watchlist" : "+ Watchlist", "favorite", { id: listed.id })}${m.kind !== "series" && downloadsEnabled ? button("Download", "download", { id: m.id }) : ""}</span>${["movie", "series"].includes(m.kind) && state.preferences.externalMetadata ? button("Find Artwork", "metadata.search", { id: m.id }) : ""}</div>${
       going
         ? `<div class="resume-block">${m.kind === "series" ? `<strong>${esc(episodeLabel(target))}</strong>` : ""}${progressBar(target)}<small>${time(Math.max(0, target.progress.duration - target.progress.seconds))} left</small></div>`
         : m.kind === "series" && target
           ? `<p class="muted">Starts with ${esc(episodeLabel(target))}</p>`
           : ""
-    }<p class="overview">${esc(m.overview || "")}</p>${
+    }<p class="overview">${esc(m.overview || listed.overview || "")}</p>${
+      derivedIndex
+        ? shelf("More Like This", moreLikeThis(derivedIndex, listed.id), poster)
+        : ""
+    }${
       m.kind === "series"
         ? `<div class="section-heading"><h2>Episodes</h2>${downloadsEnabled ? button(`Download Season ${seasonNumber}`, "download", { id: m.id, season: seasonNumber }) : ""}</div>${seasons.length > 1 ? `<div class="season-bar" role="group" aria-label="Season">${seasons.map((s: any) => `<button type="button" data-season="${esc(s.number)}" aria-pressed="${seasonNumber === s.number}">Season ${esc(s.number)}</button>`).join("")}</div>` : ""}${
             episodes
               .slice(0, visibleCount("episodes"))
               .map(
                 (e: any) =>
-                  `<article class="episode"><button type="button" class="episode-thumb" data-action="play" data-args="${esc(JSON.stringify({ id: e.id }))}" aria-label="${resuming(e) ? "Resume" : "Play"}">${image(e.backdrop || e.poster) || '<span class="still"></span>'}<span class="badge" aria-hidden="true">▶</span>${resuming(e) ? progressBar(e) : ""}</button><div class="text"><small>S${esc(e.season || 1)} · E${esc(e.episode || 1)}${e.progress?.completed ? " · Watched" : ""}</small><h3>${esc(e.title)}</h3>${resuming(e) ? `<small>Resume at ${time(e.progress.seconds)}</small>` : ""}<p>${esc(e.overview || "")}</p>${downloadsEnabled ? button(e.download ? "Downloaded" : "Download", "download", { id: e.id }) : ""}</div></article>`,
+                  `<article class="episode"><div class="episode-media"><button type="button" class="episode-thumb cover" data-action="play" data-args="${esc(JSON.stringify({ id: e.id }))}" aria-label="${resuming(e) ? "Resume" : "Play"}">${art(e, true)}<span class="badge" aria-hidden="true">▶</span></button>${resuming(e) ? progressBar(e) : ""}</div><div class="text"><small>S${esc(e.season || 1)} · E${esc(e.episode || 1)}${e.progress?.completed ? " · Watched" : ""}</small><h3>${esc(e.title)}</h3>${resuming(e) ? `<small>Resume at ${time(e.progress.seconds)}</small>` : ""}<p>${esc(e.overview || "")}</p>${downloadsEnabled ? button(e.download ? "Downloaded" : "Download", "download", { id: e.id }) : ""}</div></article>`,
               )
               .join("") || "<p>Choose a season to load its episodes.</p>"
           }${showMore("episodes", episodes.length)}`
@@ -1060,6 +1345,24 @@ document.addEventListener("click", (event: any) => {
     void run(() => chooseSeason(Number(b.dataset.season)));
     return;
   }
+  if (b.dataset.shelfDir) {
+    const row = b.closest(".shelf")?.querySelector(".shelf-row");
+    row?.scrollBy({
+      left: Number(b.dataset.shelfDir) * row.clientWidth * 0.85,
+      behavior: reduceMotion() ? "auto" : "smooth",
+    });
+    return;
+  }
+  if (b.dataset.heroSlide != null) {
+    heroIndex = Number(b.dataset.heroSlide);
+    applyHero();
+    return;
+  }
+  if (b.dataset.group != null && b.closest(".chips")) {
+    group = b.dataset.group;
+    render();
+    return;
+  }
   if (b.dataset.action)
     void run(async () => {
       const a = b.dataset.action,
@@ -1167,7 +1470,7 @@ document.addEventListener("click", (event: any) => {
             ? rows
                 .map(
                   (p: any) =>
-                    `<article class="episode"><small>${esc(new Date((p.start + 978307200) * 1000).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }))}</small><h3>${esc(p.title)}</h3><p>${esc(p.overview || "")}</p></article>`,
+                    `<article class="program"><small>${esc(new Date((p.start + 978307200) * 1000).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }))}</small><h3>${esc(p.title)}</h3><p>${esc(p.overview || "")}</p></article>`,
                 )
                 .join("")
             : "<p>No guide is available. Add an XMLTV guide URL to your playlist source.</p>",
@@ -1349,6 +1652,11 @@ document.addEventListener("change", (event: any) => {
       group = e.value;
       render();
     }
+    if (e.id === "sort") {
+      sortOrder = e.value;
+      visibleCounts.delete("library");
+      render();
+    }
     if (["autoplay", "audio-language", "subtitle-language"].includes(e.id)) {
       await cmd("preferences", {
         autoplay: $("#autoplay")?.checked,
@@ -1376,6 +1684,59 @@ document.addEventListener("input", (event: any) => {
   }
 });
 document.addEventListener("keydown", (e: KeyboardEvent) => {
+  const target = e.target as HTMLElement,
+    typing = target?.matches?.("input,select,textarea"),
+    covered = !$("#player").hidden || $("#sheet").open || $("#account").open;
+  if (e.key === "Escape" && (!menu.hidden || !preview.hidden)) {
+    e.preventDefault();
+    closeMenu(true);
+    closePreview();
+    return;
+  }
+  if (!menu.hidden && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    const items = Array.from(menu.querySelectorAll("button")) as HTMLElement[],
+      at = items.indexOf(document.activeElement as HTMLElement),
+      step = e.key === "ArrowDown" ? 1 : -1;
+    items[(at + step + items.length) % items.length]?.focus();
+    return;
+  }
+  // "/" or Cmd/Ctrl+K jump to search from anywhere in the library.
+  if (
+    !covered &&
+    (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") ||
+      (e.key === "/" && !typing))
+  ) {
+    e.preventDefault();
+    if (page !== "Search") {
+      page = "Search";
+      query = "";
+      searchEpoch++;
+      searchRows = [];
+      render();
+    }
+    $("#search-query")?.focus();
+    return;
+  }
+  // Arrow keys move between the cards of a shelf.
+  const card = target?.closest?.(".shelf-row > *");
+  if (card && !covered && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+    const next = (
+      e.key === "ArrowRight"
+        ? card.nextElementSibling
+        : card.previousElementSibling
+    ) as HTMLElement | null;
+    if (next) {
+      e.preventDefault();
+      next.focus();
+      next.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+        behavior: reduceMotion() ? "auto" : "smooth",
+      });
+    }
+    return;
+  }
   if (e.key === "Enter" && (e.target as HTMLElement)?.id === "search-query") {
     e.preventDefault();
     void run(async () => {
@@ -1399,6 +1760,164 @@ document.addEventListener("keydown", (e: KeyboardEvent) => {
       searchRows = await cmd("search", { query });
       render();
     });
+});
+// Hover preview and context menu: one shared element each, filled from the
+// title's published data and positioned through CSS variables (never inline styles).
+const preview = document.createElement("div"),
+  menu = document.createElement("div");
+preview.id = "preview";
+preview.hidden = true;
+preview.setAttribute("role", "dialog");
+preview.setAttribute("aria-label", "Title preview");
+menu.id = "context-menu";
+menu.hidden = true;
+menu.setAttribute("role", "menu");
+document.body.append(preview, menu);
+let previewTimer: any,
+  previewCard: Element | null = null,
+  menuCard: HTMLElement | null = null,
+  mediaIndex = new Map<string, any>(),
+  mediaIndexOf: any = null;
+function lookup(id: string) {
+  if (mediaIndexOf !== state.media) {
+    mediaIndexOf = state.media;
+    mediaIndex = new Map(state.media.map((m: any) => [m.id, m]));
+    for (const t of state.transfers || [])
+      if (!mediaIndex.has(t.media.id)) mediaIndex.set(t.media.id, t.media);
+  }
+  return mediaIndex.get(id);
+}
+const place = (el: HTMLElement, x: number, y: number) => {
+  el.style.setProperty("--x", `${Math.round(x)}px`);
+  el.style.setProperty("--y", `${Math.round(y)}px`);
+};
+function closePreview() {
+  clearTimeout(previewTimer);
+  previewCard = null;
+  preview.classList.remove("open");
+  preview.hidden = true;
+}
+function closeMenu(restoreFocus = false) {
+  if (menu.hidden) return;
+  menu.hidden = true;
+  if (restoreFocus) menuCard?.focus();
+  menuCard = null;
+}
+function showPreview(card: HTMLElement) {
+  const m = lookup(card.dataset.id || "");
+  if (!m) return;
+  const listed = seriesOf(m) || m,
+    going = resuming(m),
+    action =
+      m.kind === "series"
+        ? button("Details", "detail", { id: m.id }, true)
+        : button(going ? "Resume" : "Play", "play", { id: m.id }, true);
+  preview.innerHTML = `<span class="cover">${art(m, true)}</span><div class="preview-copy"><strong>${esc(m.seriesTitle || m.title)}</strong><small>${esc([episodeLabel(m), minutes(m)].filter(Boolean).join(" · "))}</small>${m.overview || listed.overview ? `<p>${esc(m.overview || listed.overview)}</p>` : ""}${going ? progressBar(m) : ""}<div class="preview-actions">${action}${button(listed.favorite ? "Remove from Watchlist" : "Add to Watchlist", "favorite", { id: listed.id })}</div></div>`;
+  markLoaded(preview);
+  preview.hidden = false;
+  const r = card.getBoundingClientRect(),
+    w = preview.offsetWidth,
+    h = preview.offsetHeight;
+  let x = r.right + 12;
+  if (x + w > innerWidth - 12) x = r.left - w - 12;
+  place(
+    preview,
+    Math.max(12, x),
+    Math.max(12, Math.min(r.top - 8, innerHeight - h - 12)),
+  );
+  requestAnimationFrame(() => preview.classList.add("open"));
+}
+const canHover = matchMedia("(hover: hover) and (min-width: 761px)");
+document.addEventListener("pointerover", (e: any) => {
+  if (!canHover.matches || e.pointerType === "touch") return;
+  if (preview.contains(e.target)) return void clearTimeout(previewTimer);
+  const card = e.target.closest?.(".poster, .continue-card");
+  if (!card || card === previewCard) return;
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => {
+    if (!card.isConnected || !menu.hidden || $("#sheet").open) return;
+    if ($("#account").open || !$("#player").hidden) return;
+    previewCard = card;
+    showPreview(card);
+  }, 400);
+});
+document.addEventListener("pointerout", (e: any) => {
+  const from = e.target.closest?.(".poster, .continue-card, #preview"),
+    to = e.relatedTarget;
+  if (!from) return;
+  if (
+    to &&
+    (from.contains(to) || preview.contains(to) || previewCard?.contains(to))
+  )
+    return;
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(closePreview, 150);
+});
+document.addEventListener("scroll", () => closePreview(), {
+  capture: true,
+  passive: true,
+});
+addEventListener("blur", () => {
+  closePreview();
+  closeMenu();
+});
+addEventListener("resize", () => {
+  closePreview();
+  closeMenu();
+});
+// A click anywhere closes the menu and the preview; their own buttons still act.
+document.addEventListener(
+  "click",
+  (e: any) => {
+    if (menu.contains(e.target) || preview.contains(e.target))
+      setTimeout(() => {
+        closeMenu();
+        closePreview();
+      });
+    else {
+      closeMenu();
+      closePreview();
+    }
+  },
+  true,
+);
+document.addEventListener("contextmenu", (e: any) => {
+  const card = e.target.closest?.(
+    ".poster, .continue-card, .hero-slide, .search-results .row",
+  );
+  const m = card && lookup(card.dataset.id || "");
+  if (!m) return;
+  e.preventDefault();
+  closePreview();
+  const listed = seriesOf(m) || m,
+    item = (label: string, action: string, args: any) =>
+      `<button type="button" role="menuitem" data-action="${esc(action)}" data-args="${esc(JSON.stringify(args))}">${esc(label)}</button>`;
+  menu.innerHTML = [
+    m.kind !== "series"
+      ? item(resuming(m) ? "Resume" : "Play", "play", { id: m.id })
+      : "",
+    item("Details", "detail", { id: listed.id }),
+    item(
+      listed.favorite ? "Remove from Watchlist" : "Add to Watchlist",
+      "favorite",
+      { id: listed.id },
+    ),
+    downloadsEnabled && ["movie", "episode"].includes(m.kind)
+      ? item("Download", "download", { id: m.id })
+      : "",
+  ].join("");
+  menuCard = card;
+  menu.hidden = false;
+  const r = card.getBoundingClientRect(),
+    keyboard = e.clientX === 0 && e.clientY === 0,
+    x = keyboard ? r.left + 16 : e.clientX,
+    y = keyboard ? r.top + 16 : e.clientY;
+  place(
+    menu,
+    Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)),
+    Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)),
+  );
+  (menu.querySelector("button") as HTMLElement | null)?.focus();
 });
 window.oxa.onUpdate((update) => {
   const statuses = update.partial

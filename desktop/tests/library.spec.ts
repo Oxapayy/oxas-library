@@ -263,14 +263,19 @@ test("website episodes, HLS, next episode, full-season offline files, MPEG-TS an
       { timeout: 15000 },
     );
     await p.locator('#sidebar [data-page="Live TV"]').click();
-    await expect(p.getByText("Now on Fixture", { exact: true })).toBeVisible();
+    await expect(
+      p.locator(".channel").getByText("Now on Fixture", { exact: true }),
+    ).toBeVisible();
     await p.getByRole("button", { name: "Program Guide" }).click();
     await expect(
       p.getByRole("heading", { name: "Now on Fixture" }),
     ).toBeVisible();
     await p.getByRole("button", { name: "Close", exact: true }).click();
     await p.getByRole("button", { name: "Play", exact: true }).click();
-    await p.getByRole("button", { name: /Fixture Live/ }).click();
+    await p
+      .locator("#sheet")
+      .getByRole("button", { name: /Fixture Live/ })
+      .click();
     await expect
       .poll(() =>
         p.locator("video").evaluate((v: HTMLVideoElement) => v.currentTime),

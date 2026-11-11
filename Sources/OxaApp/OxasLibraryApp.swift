@@ -9,20 +9,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 @main struct OxasLibraryApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @State private var store = AppStore()
+    @State private var shelves = ShelfModel()
     init() {
         URLCache.shared = URLCache(memoryCapacity: 32 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
-        let appearance = UITabBarAppearance(); appearance.configureWithOpaqueBackground(); appearance.backgroundColor = UIColor(white: 0.04, alpha: 1)
-        appearance.stackedLayoutAppearance.normal.iconColor = .lightGray
-        appearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.lightGray]
-        appearance.stackedLayoutAppearance.selected.iconColor = .white
-        appearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.white]
-        UITabBar.appearance().standardAppearance = appearance; UITabBar.appearance().scrollEdgeAppearance = appearance
-        let navigation = UINavigationBarAppearance(); navigation.configureWithOpaqueBackground(); navigation.backgroundColor = UIColor(white: 0.04, alpha: 1)
-        navigation.titleTextAttributes = [.foregroundColor: UIColor.white]; navigation.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
-        UINavigationBar.appearance().standardAppearance = navigation; UINavigationBar.appearance().scrollEdgeAppearance = navigation
     }
     var body: some Scene {
-        WindowGroup { RootView().environment(store).preferredColorScheme(.dark).environment(\.locale, Locale(identifier: "en")) }
+        WindowGroup { RootView().environment(store).environment(shelves).preferredColorScheme(.dark).environment(\.locale, Locale(identifier: "en")) }
     }
 }
 struct RootView: View {
@@ -39,7 +31,7 @@ struct RootView: View {
             NavigationStack { IPTVView() }.tabItem { Label("Live TV", systemImage: "tv") }.tag(2)
             NavigationStack { DownloadsView() }.tabItem { Label("Downloads", systemImage: "arrow.down.circle") }.tag(3)
             NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "slider.horizontal.3") }.tag(4)
-        }.tint(.white)
+        }.tint(.white).background(ShelfUpdater())
             .sheet(isPresented: $showAccountWelcome) { AccountWelcome().environment(store) }
             .sheet(isPresented: $store.showAddSource) { SourceEditor().environment(store) }
             .sheet(item: Binding(get: { store.playback == nil ? store.sourceSelection : nil }, set: { store.sourceSelection = $0 }), onDismiss: { store.presentPendingPlayback() }) { SourcePicker(selection: $0).environment(store) }
@@ -54,6 +46,17 @@ struct RootView: View {
             .onChange(of: scenePhase) { _, phase in if phase != .active { store.saveForBackground() } else { store.startRefresh(); Task { await store.account?.sync(); await store.checkForUpdate() } } }
             .task { await store.checkForUpdate() }
             .task { store.startRefresh(); while !Task.isCancelled { try? await Task.sleep(for: .seconds(ProcessInfo.processInfo.isLowPowerModeEnabled ? 120 : 30)); if scenePhase == .active { await store.account?.sync() } } }
+    }
+}
+
+/// Recomputes the shelves off RootView, so progress changes only invalidate this view.
+private struct ShelfUpdater: View {
+    @Environment(AppStore.self) private var store
+    @Environment(ShelfModel.self) private var shelves
+    var body: some View {
+        let key = "\(store.state.catalogRevision)|\(store.libraryEpoch)|\(Shelves.signature(progress: store.state.progress, favorites: store.state.favorites))"
+        Color.clear.accessibilityHidden(true)
+            .task(id: key) { await shelves.update(catalog: store.catalog, progress: store.state.progress, favorites: store.state.favorites, revision: store.state.catalogRevision, epoch: store.libraryEpoch) }
     }
 }
 

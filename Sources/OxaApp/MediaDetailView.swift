@@ -3,12 +3,13 @@ import UniformTypeIdentifiers
 
 struct MediaDetailView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.colorSchemeContrast) private var contrast
     let media: Media
     @State private var selectedSeason = 1
     @State private var importingCaption = false
     @State private var captionTarget: Media?
     @State private var findingArtwork = false
-    @ScaledMetric(relativeTo: .title) private var titleSize = 28
+    @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 34
     private var current: Media { store.media(media.id) ?? media }
     private var episodes: [Media] { store.episodes(media) }
     private var seasons: [Int] { Array(Set(episodes.map { $0.season ?? 1 } + (current.websiteItem?.seasons.map(\.number) ?? []))).sorted() }
@@ -23,10 +24,11 @@ struct MediaDetailView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 ZStack(alignment: .bottomLeading) {
-                    ArtView(media: current, wide: false).frame(height: 520).frame(maxWidth: .infinity)
-                    LinearGradient(colors: [OxaTheme.ground.opacity(0), OxaTheme.ground.opacity(0.8), OxaTheme.ground], startPoint: UnitPoint(x: 0.5, y: 0.3), endPoint: .bottom)
+                    // Top scrim keeps the back button readable on bright art.
+                    ArtView(media: current, wide: false, titled: false).frame(height: 520).frame(maxWidth: .infinity).overlay(alignment: .top) { OxaTheme.topScrim(contrast).frame(height: 140) }
+                    OxaTheme.bottomScrim(contrast)
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(current.displayTitle).font(.system(size: titleSize, weight: .bold)).tracking(-0.5).foregroundStyle(.white).lineLimit(3)
+                        Text(current.displayTitle).font(.system(size: titleSize, weight: .bold)).tracking(-0.6).foregroundStyle(.white).lineLimit(3).minimumScaleFactor(0.75)
                         Text([current.year.map(String.init), media.kind == .series ? "Series" : media.kind == .episode ? "\(media.episodeLabel) · \(current.title)" : "Film", current.duration.boundedDuration > 0 ? "\(Int(current.duration.boundedDuration / 60)) min" : nil, store.source(media.sourceID)?.name].compactMap { $0 }.joined(separator: " · ")).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.78)).lineLimit(2)
                     }.padding(.horizontal, 20).padding(.bottom, 4)
                 }
@@ -73,6 +75,7 @@ struct MediaDetailView: View {
                         } else { Text("No episodes were returned by this source.").font(.subheadline).foregroundStyle(OxaTheme.secondary).padding(.horizontal, 20) }
                     }
                 }
+                MoreLikeThis(seedID: media.kind == .episode ? watchItem.id : current.id)
                 if current.kind == .movie || current.kind == .episode {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Subtitles").font(.headline)
@@ -129,13 +132,15 @@ struct MediaDetailView: View {
         let saved = store.state.progress[item.id]
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 14) {
-                Button { Task { await store.play(item) } } label: {
-                    ZStack(alignment: .bottomLeading) {
-                        ArtView(media: item, wide: true).frame(width: 140, height: 80)
-                        Image(systemName: "play.fill").font(.caption).foregroundStyle(.black).frame(width: 28, height: 28).background(OxaTheme.onWhite, in: Circle()).padding(8)
-                        if let saved, !saved.completed { ProgressView(value: saved.fraction).tint(OxaTheme.accent).frame(height: 3).padding(.horizontal, 8).padding(.bottom, 2).frame(maxHeight: .infinity, alignment: .bottom) }
-                    }.frame(width: 140, height: 80).clipShape(RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.08)))
-                }.buttonStyle(PressStyle()).accessibilityLabel("Play \(item.title)")
+                VStack(alignment: .leading, spacing: 6) {
+                    Button { Task { await store.play(item) } } label: {
+                        Color.clear.aspectRatio(16 / 9, contentMode: .fit).overlay { ArtView(media: item, wide: true) }
+                            .overlay(alignment: .bottomLeading) { Image(systemName: "play.fill").font(.caption).foregroundStyle(.black).frame(width: 28, height: 28).background(OxaTheme.onWhite, in: Circle()).padding(8) }
+                            .clipShape(RoundedRectangle(cornerRadius: OxaTheme.radiusCard)).overlay(RoundedRectangle(cornerRadius: OxaTheme.radiusCard).stroke(OxaTheme.hairline(contrast)))
+                    }.buttonStyle(PressStyle()).accessibilityLabel("Play \(item.title)")
+                    // Watch progress sits under the thumbnail, not on the art.
+                    if let saved, saved.seconds > 0, !saved.completed { ProgressLine(fraction: saved.fraction) }
+                }.frame(width: 140)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.episodeLabel).font(.caption).foregroundStyle(OxaTheme.secondary)
                     Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2)
@@ -161,11 +166,28 @@ private struct SeasonBar: View {
                 ForEach(seasons, id: \.self) { number in
                     let active = number == selection
                     Button { selection = number } label: {
-                        Text("Season \(number)").font(.subheadline.weight(active ? .bold : .medium)).foregroundStyle(active ? .black : .white.opacity(0.72))
-                            .padding(.horizontal, 14).frame(minHeight: 40).background(active ? OxaTheme.onWhite : .clear, in: Capsule()).contentShape(Capsule())
+                        ChipLabel(title: "Season \(number)", active: active)
                     }.accessibilityAddTraits(active ? .isSelected : [])
                 }
             }.padding(4)
         }.glassPill(Capsule()).clipShape(Capsule()).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Its own view, so download progress on the detail page does not rerun the
+/// similarity scoring; it only depends on the seed and the shared index.
+private struct MoreLikeThis: View {
+    @Environment(AppStore.self) private var store
+    @Environment(ShelfModel.self) private var shelves
+    let seedID: String
+    var body: some View {
+        let similar = (shelves.index.map { Shelves.moreLikeThis($0, seedID) } ?? []).compactMap { store.media($0) }
+        if !similar.isEmpty {
+            ShelfRow(title: "More Like This") {
+                ForEach(similar) { item in
+                    NavigationLink { MediaDetailView(media: item) } label: { PosterCard(media: item) }.buttonStyle(PressStyle()).contextMenu { MediaActions(media: item) }.frame(width: 120).accessibilityIdentifier("more-like-\(item.providerID)")
+                }
+            }
+        }
     }
 }
